@@ -1,10 +1,13 @@
-# Pipo no Jardim (protótipo SNES)
+# Pipo no Jardim
 
-Jogo de SNES para uma criança de ~3 anos: o pintinho **Pipo** passeia por um jardim
-e leva cada bola colorida até a cesta da mesma cor. Não há morte, tempo nem
-pontuação: na cesta errada simplesmente nada acontece. Acertar faz o Pipo pular com
-coração e brilhos. Com as 3 bolas no lugar, o portão abre; a estrela no cercado
-mostra a única mensagem da fase.
+Jogo de SNES (`.sfc`) para uma criança de ~3 anos. O pintinho **Pipo** passeia pelo
+jardim resolvendo quebra-cabeças simples, sem morte, tempo ou pontuação: errar
+simplesmente não faz nada, e acertar faz o Pipo pular com coração e brilhos. Cada fase
+termina numa estrela, e a cada estrela o Pipo cresce um pouco, até virar galo.
+
+<p align="center">
+  <img src="docs/img/abertura.png" width="384" alt="Abertura: o Pipo acaba de nascer e aparece o título PIPO NO JARDIM">
+</p>
 
 - **Fase 1 — O Jardim:** bolas paradas; cada uma vai na cesta da mesma cor.
 - **Fase 2 — Bolas Puladoras:** as bolas quicam e pulam pelo campo; é só encostar para pegar.
@@ -26,6 +29,29 @@ canta, com um grande FIM!. Um botão volta para a abertura.
 
 **O Pipo cresce:** a cada estrela ele pisca e fica maior (12 tamanhos, de pintinho a
 frango). Na última fase vira um galo e canta "có-có-ri-có". Depois vem a tela final.
+
+## Imagens
+
+| | |
+|:---:|:---:|
+| ![Fase 1](docs/img/fase1.png) | ![Fase 2](docs/img/fase2.png) |
+| **Fase 1:** cada bola na cesta da sua cor | **Fase 2:** as bolas puladoras |
+| ![Fase 4](docs/img/fase4.png) | ![Fase 5](docs/img/fase5.png) |
+| **Fase 4:** o coelho escondido no arbusto | **Fase 5:** os botões fazem aparecer as pontes |
+| ![Fase 6](docs/img/fase6.png) | ![Fase 8](docs/img/fase8.png) |
+| **Fase 6:** a fila de patinhos | **Fase 8:** os bichinhos de barriga cheia |
+| ![Fase 9](docs/img/fase9.png) | ![Fase 11](docs/img/fase11.png) |
+| **Fase 9:** a noite dos vaga-lumes | **Fase 11:** o Pipo vira galo |
+
+**O Pipo crescendo, fase a fase:**
+
+![Os 12 estágios do Pipo, de pintinho a galo](docs/img/crescimento.png)
+
+**Tela final:**
+
+<p align="center">
+  <img src="docs/img/final.png" width="384" alt="Tela final: FIM!, os amigos felizes e o galo cantando">
+</p>
 
 ## Controles
 - **Direcional**: anda. Tudo acontece encostando ou pisando nas coisas.
@@ -58,3 +84,5 @@ Uma cantiga de ninar original em loop (melodia + baixo) e efeitos curtos:
 pegar algo, acertar, portão/ponte, estrela, patinhos/amigos e folhinhas.
 As notas são escritas como `('C5', duração)` em `tools/sound.py` (duração em
 centésimos de segundo; `Q` = uma semínima).
+
+As imagens em `docs/img/` saem do teste automático (`build/shots/`).
