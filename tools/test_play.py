@@ -180,7 +180,9 @@ def main():
     p.frames(40); p.shot('abertura_rachou')
     p.frames(40); p.shot('abertura_titulo')
     assert p.var('msg_active') and not p.var('hide_player'), 'o Pipo deveria ter nascido'
+    assert p.var('menu_sel') == B.LANG_PT
     p.frames(2, 'START'); p.frames(3)
+    assert p.var('lang') == B.LANG_PT
     assert p.var('mode') == B.MODE_PLAY and p.var('level') == 0
     assert not p.var('msg_active')
     p.shot('f1_inicio')
@@ -371,10 +373,21 @@ def main():
     assert p.var('mode') == B.MODE_TITLE, 'deveria voltar para a abertura'
     p.frames(120)
     assert p.stage() == 0, 'abertura com pintinho novo'
-    p.frames(2, 'B'); p.frames(3)
-    assert p.var('mode') == B.MODE_PLAY and p.var('level') == 0
-    p.shot('volta_f1')
-    print('OK — abertura, 11 fases, final e volta para a fase 1 (%d quadros emulados)' % p.emu.frame)
+    p.shot('menu_pt')
+    # ---------------- inglês
+    p.frames(2, 'DOWN'); p.frames(4)
+    assert p.var('menu_sel') == B.LANG_EN and p.var('mode') == B.MODE_TITLE
+    p.shot('menu_en')
+    p.frames(2, 'A'); p.frames(3)
+    assert p.var('mode') == B.MODE_PLAY and p.var('level') == 0 and p.var('lang') == B.LANG_EN
+    L = B.level1
+    for item, basket in (('r', '1'), ('b', '2'), ('y', '3')):
+        p.touch(*find(L, item)[0]); p.touch(*find(L, basket)[0])
+    p.touch(*find(L, '*')[0], msg=True)
+    p.frames(12)
+    assert p.var('msg_next') == B.MSG['0_grow@en'], 'mensagem deveria estar em inglês'
+    p.shot('f1_estrela_ingles')
+    print('OK — abertura, 11 fases, final, volta e fase 1 em inglês (%d quadros emulados)' % p.emu.frame)
 
 
 if __name__ == '__main__':

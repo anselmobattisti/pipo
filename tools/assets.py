@@ -857,7 +857,7 @@ def build_sprites():
 # a ROM: cada uma vira um bloco de 30x6 tiles 2bpp (240x48 px, 3 linhas de 16 px).
 TEXT_SIZE = 13           # tamanho da fonte em pixels
 TEXT_COLS, TEXT_ROWS = 30, 6
-BOX_TILES = ['top', 'bottom', 'left', 'right', 'tl', 'tr', 'bl', 'br', 'arrow', 'fill']
+BOX_TILES = ['top', 'bottom', 'left', 'right', 'tl', 'tr', 'bl', 'br', 'arrow', 'fill', 'heart_t', 'heart_b']
 
 
 def _font():
@@ -905,6 +905,11 @@ def _box(kind):
         d.pieslice((-6, -6, 3, 3), 0, 90, fill=1)
     if kind == 'arrow':
         d.polygon([(1, 1), (6, 1), (3.5, 5)], fill=3)
+    if kind in ('heart_t', 'heart_b'):        # coração de 2 tiles (cursor do menu)
+        big = Image.new('P', (8, 16), 1); hd = ImageDraw.Draw(big)
+        hd.ellipse((0, 4, 4, 8), fill=3); hd.ellipse((3, 4, 7, 8), fill=3)
+        hd.polygon([(0, 7), (7, 7), (3.5, 12)], fill=3)
+        return big.crop((0, 0, 8, 8) if kind == 'heart_t' else (0, 8, 8, 16))
     return p
 
 

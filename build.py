@@ -38,12 +38,20 @@ ALL = LEVELS + SCREENS
 TITLE, ENDING = len(LEVELS), len(LEVELS) + 1
 MODE_PLAY, MODE_TITLE, MODE_END = 0, 1, 2
 
-# todas as mensagens de todas as fases, com prefixo "<fase>_"
+# todas as mensagens de todas as fases, com prefixo "<fase>_": primeiro todas em
+# português, depois as mesmas em inglês (índice + NPT)
 MESSAGES = []
 for _li, _L in enumerate(ALL):
     for _name, _lines, _nxt in _L.MESSAGES:
         MESSAGES.append(('%d_%s' % (_li, _name), _lines, '%d_%s' % (_li, _nxt) if _nxt else None))
+NPT = len(MESSAGES)
+for _li, _L in enumerate(ALL):
+    _en = getattr(_L, 'MESSAGES_EN', {})
+    for _name, _lines, _nxt in _L.MESSAGES:
+        MESSAGES.append(('%d_%s@en' % (_li, _name), _en.get(_name, _lines),
+                         '%d_%s@en' % (_li, _nxt) if _nxt else None))
 MSG = {name: i for i, (name, _, _) in enumerate(MESSAGES)}
+LANG_PT, LANG_EN = 0, 1
 
 # ------------------------------------------------------------------ memória (WRAM)
 VARS = {}
@@ -55,7 +63,8 @@ for _n in ('joy joy_prev joy_new px py tx ty move_cnt move_dir facing frame_ctr 
            'up_src up_bank up_left up_vaddr up_chunk msg_pending fx_timer fx_x fx_y '
            'followers hist_head mother_x mother_y snd_req snd_cnt '
            'pal_id pal_dirty pslot slot_stage slot_stage1 grow_t pu_src pu_bank pu_left pu_vaddr pu_slot '
-           'mode scr_t hide_player scene_on scene_x scene_y scene_tile logo_req').split():
+           'mode scr_t hide_player scene_on scene_x scene_y scene_tile logo_req lang menu_sel '
+           'lptr lptr_bank').split():
     VARS[_n] = _next
     _next += 2
 assert _next < 0x100
@@ -123,7 +132,8 @@ def build():
     box_tiles = A.build_box_tiles()
     msgs, _ = A.build_text([lines for _, lines, _ in MESSAGES])
     logo_tiles, logo_maps = A.build_logos([A.render_logo([('PIPO', 34), ('NO JARDIM', 20)]),
-                                           A.render_logo([('FIM!', 40)], width=160, height=48)])
+                                           A.render_logo([('FIM!', 40)], width=160, height=48),
+                                           A.render_logo([('THE END!', 36)], width=200, height=48)])
 
     # gráficos no banco 1, tiles das mensagens onde couber (bancos 1 a 3)
     banks = {b: bytearray() for b in range(1, 8)}
@@ -140,10 +150,13 @@ def build():
         stage_src.append((bank, 0x8000 + len(banks[bank])))
         banks[bank] += blob
     msg_src = []
-    for tiles, _ in msgs:
-        bank = next(b for b in range(1, 8) if len(banks[b]) + len(tiles) <= 0x8000)
-        msg_src.append((bank, 0x8000 + len(banks[bank]), len(tiles)))
-        banks[bank] += tiles
+    for tiles, m in msgs:
+        mapb = b''.join((0x2400 | t).to_bytes(2, 'little') for t in m)   # prioridade + paleta 1
+        blob = mapb + tiles
+        bank = next(b for b in range(1, 8) if len(banks[b]) + len(blob) <= 0x8000)
+        base = 0x8000 + len(banks[bank])
+        msg_src.append((bank, base + len(mapb), len(tiles), base))   # banco, tiles, tamanho, mapa
+        banks[bank] += blob
 
     a = Asm(0x8000)
     emit_init(a, gfx, bg_tiles, box_tiles, spr_tiles, stage_src)
@@ -338,19 +351,46 @@ def emit_main(a):
     a.lda(V['py']); a.clc(); a.adc('#', 3); a.sta(V['scene_y'])
     sfx(a, 'piu')
     a.lda('#', 60); a.sta(V['happy'])
-    a.lda('#', MSG['%d_prompt' % TITLE]); a.jsr('show_msg')
+    a.lda('#', MSG['%d_lang' % TITLE]); a.jsr('show_msg_raw')
     a.lda('#', 0x3FF); a.sta(V['txt_scroll'])
-    a.rts()
+    a.lda(V['lang']); a.sta(V['menu_sel'])
+    a.jmp('draw_menu')
     a.label('ut_wait')
     a.lda(V['scr_t']); a.and_('#', 127); a.bne('ut_2')
     a.lda('#', 40); a.sta(V['happy'])
     a.label('ut_2')
     a.lda(V['scr_t']); a.cmp('#', 110); a.bcc('ut_ret')
     a.lda(V['msg_pending']); a.bne('ut_ret')
-    a.lda(V['joy_new']); a.and_('#', 0xFFF0); a.beq('ut_ret')
-    a.stz(V['level'])                         # começa a fase 1
+    # direcional: troca o idioma
+    a.lda(V['joy_new']); a.and_('#', 0x0F00); a.beq('ut_btn')
+    a.lda(V['menu_sel']); a.eor('#', 1); a.sta(V['menu_sel'])
+    sfx(a, 'note1')
+    a.jmp('draw_menu')
+    a.label('ut_btn')
+    # qualquer outro botão: confirma e começa a fase 1
+    a.lda(V['joy_new']); a.and_('#', BTN_ANY); a.beq('ut_ret')
+    a.lda(V['menu_sel']); a.sta(V['lang'])
+    sfx(a, 'pick')
+    a.stz(V['level'])
     a.jmp('reset_level')
     a.label('ut_ret')
+    a.rts()
+
+    # draw_menu: coração ao lado do idioma escolhido (dentro da caixa de texto)
+    a.label('draw_menu')
+    hx = menu_heart_cols()
+    for sel in (0, 1):
+        top = ((2 + 2 * sel) * 32 + 1 + hx[sel]) * 2
+        lbl_off = 'dm_off_%d' % sel
+        lbl_done = 'dm_done_%d' % sel
+        a.lda(V['menu_sel']); a.cmp('#', sel); a.bne(lbl_off)
+        a.lda('#', 0x2400 | A.box_tile('heart_t')); a.sta(TXTBUF + top)
+        a.lda('#', 0x2400 | A.box_tile('heart_b')); a.sta(TXTBUF + top + 64)
+        a.bra(lbl_done)
+        a.label(lbl_off)
+        a.lda('#', 0x2400 | A.box_tile('fill')); a.sta(TXTBUF + top); a.sta(TXTBUF + top + 64)
+        a.label(lbl_done)
+    a.a8(); a.lda('#', 1); a.sta(V['text_dirty']); a.rep(0x20)
     a.rts()
 
     # ---------------------------------------------------------- tela final
@@ -484,7 +524,7 @@ def emit_text(a):
     a.label('um_ready')
     a.lda(V['joy_new']); a.and_('#', BTN_ANY); a.beq('um_done')
     a.lda(V['msg_next']); a.cmp('#', 0xFF); a.beq('um_close')
-    a.jmp('show_msg')                         # encadeia a próxima mensagem
+    a.jmp('show_msg_raw')                     # encadeia a próxima (já no idioma certo)
     a.label('um_close')
     a.stz(V['msg_active'])
     a.lda('#', 1); a.sta(V['bump_lock'])
@@ -498,21 +538,25 @@ def emit_text(a):
 
     # show_msg: A = número da mensagem. Agenda o envio dos tiles (feito no NMI)
     # e monta o mapa da caixa; a caixa só aparece quando os tiles chegarem.
-    a.label('show_msg')
+    a.label('show_msg')                       # A = mensagem em português; soma NPT se inglês
+    a.ldx(V['lang']); a.beq('show_msg_raw')
+    a.clc(); a.adc('#', NPT)
+    a.label('show_msg_raw')                   # A = índice exato da mensagem
     a.asl(); a.tax()
     a.lda('msg_next_tbl', 'x'); a.sta(V['msg_next'])
     a.lda('msg_tsrc', 'x'); a.sta(V['up_src'])
     a.lda('msg_tbank', 'x'); a.sta(V['up_bank'])
     a.lda('#', VRAM_MSG_TILES); a.sta(V['up_vaddr'])
     a.lda('msg_tsize', 'x'); a.sta(V['up_left'])
-    a.lda('msg_map_tbl', 'x'); a.sta(V['ptr'])
+    a.lda('msg_map_src', 'x'); a.sta(V['lptr'])
+    a.lda('msg_tbank', 'x'); a.sta(V['lptr_bank'])
     a.ldy('#', 0)
     a.ldx('#', (1 * 32 + 1) * 2)
     a.lda('#', 6); a.sta(V['tmp2'])
     a.label('sm_row')
     a.lda('#', 30); a.sta(V['tmp1'])
     a.label('sm_col')
-    a.lda('(dp),y', V['ptr']); a.sta(TXTBUF, 'x')
+    a.lda('[dp],y', V['lptr']); a.sta(TXTBUF, 'x')
     a.iny(); a.iny(); a.inx(); a.inx()
     a.dec(V['tmp1']); a.bne('sm_col')
     a.inx(); a.inx(); a.inx(); a.inx()        # pula as bordas
@@ -863,7 +907,7 @@ def emit_level(a):
     a.sta(V['logo_req'])                      # logotipo PIPO NO JARDIM
     a.rts()
     a.label('rl_final')
-    a.lda('#', 2); a.sta(V['logo_req'])      # logotipo FIM!
+    a.lda(V['lang']); a.asl(); a.clc(); a.adc('#', 2); a.sta(V['logo_req'])   # FIM! / THE END!
     a.lda('#', MSG['%d_box' % ENDING]); a.jsr('show_msg')
     a.lda('#', 0x3FF); a.sta(V['txt_scroll'])
     a.rts()
@@ -1187,23 +1231,14 @@ def emit_nmi(a):
     a.a8(); a.lda('#', 1); a.sta(0x420B)
     a.stz(V['pal_dirty'])
     a.label('nmi_nopal')
-    # logotipo no BG3 (linhas 1..8)
+    # logotipo no BG3 (linhas 1..8): 1 título, 2 FIM!, 3 apagar, 4 THE END!
     a.lda(V['logo_req']); a.beq('nmi_nologo')
     a.rep(0x20)
     a.lda('#', VRAM_BG3_MAP + 32); a.sta(0x2116)
-    a.lda(V['logo_req']); a.cmp('#', 3); a.beq('nmi_lclear')
-    a.cmp('#', 1); a.bne('nmi_l2')
-    a.lda('#', 'logo_map_0'); a.bra('nmi_lset')
-    a.label('nmi_l2')
-    a.lda('#', 'logo_map_1')
-    a.label('nmi_lset')
-    a.sta(0x4302)
-    a.a8(); a.lda('#', 0x01); a.bra('nmi_ldma')
-    a.label('nmi_lclear')
-    a.assume(m16=True)                        # chega aqui com A em 16 bits
-    a.lda('#', 'zero_word'); a.sta(0x4302)
-    a.a8(); a.lda('#', 0x09)
-    a.label('nmi_ldma')
+    a.lda(V['logo_req']); a.asl(); a.tax()
+    a.lda('logo_src', 'x'); a.sta(0x4302)
+    a.lda('logo_dma', 'x')
+    a.a8()
     a.sta(0x4300)
     a.lda('#', 0x18); a.sta(0x4301); a.stz(0x4304)
     a.rep(0x20); a.lda('#', 512); a.sta(0x4305)
@@ -1287,6 +1322,8 @@ def emit_data(a, mt_table, msgs, msg_src, stage_src, logo_maps):
     a.label('lvl_stage'); a.word(*(list(range(nl)) + [0, growth.STAGES - 1]))
     for i, m in enumerate(logo_maps):
         a.label('logo_map_%d' % i); a.word(*m)
+    a.label('logo_src'); a.word(0, 'logo_map_0', 'logo_map_1', 'zero_word', 'logo_map_2')
+    a.label('logo_dma'); a.word(0, 0x01, 0x01, 0x09, 0x01)   # 9 = fonte fixa (zera)
     a.label('lvl_gate'); a.word(*['open_gate_%d' % i for i in range(n)])
     a.label('lvl_bridge')
     a.word(*['open_bridge_%d_%s' % (i, c) for i in range(n) for c in COLORS])
@@ -1305,14 +1342,12 @@ def emit_data(a, mt_table, msgs, msg_src, stage_src, logo_maps):
     a.align(2)
 
     # mensagens
-    a.label('msg_tsrc'); a.word(*[src for _, src, _ in msg_src])
-    a.label('msg_tbank'); a.word(*[bank for bank, _, _ in msg_src])
-    a.label('msg_tsize'); a.word(*[size for _, _, size in msg_src])
+    a.label('msg_tsrc'); a.word(*[src for _, src, _, _ in msg_src])
+    a.label('msg_tbank'); a.word(*[bank for bank, _, _, _ in msg_src])
+    a.label('msg_tsize'); a.word(*[size for _, _, size, _ in msg_src])
+    a.label('msg_map_src'); a.word(*[m for _, _, _, m in msg_src])
     a.label('msg_next_tbl')
     a.word(*[MSG[nxt] if nxt else 0xFF for _, _, nxt in MESSAGES])
-    a.label('msg_map_tbl'); a.word(*['msg_map_%d' % i for i in range(len(msgs))])
-    for i, (_, m) in enumerate(msgs):
-        a.label('msg_map_%d' % i); a.word(*[0x2400 | t for t in m])   # prioridade + paleta 1
     a.label('box_template'); a.word(*box_template())
     a.label('palettes'); a.byte(palettes())
 
@@ -1415,6 +1450,17 @@ CHAR_MT = {
     '(': 'bloom_1', ')': 'bloom_2', '[': 'bloom_3', '&': 'rabbit_f', '%': 'dog_f',
     '$': 'bubble_heart', '@': 'nest_3',
 }
+
+
+def menu_heart_cols():
+    """Coluna (dentro da área de texto) do coração ao lado de cada idioma."""
+    font = A._font()
+    cols = []
+    for line in title.MESSAGES[0][1]:
+        w = font.getlength(line)
+        x = 120 - w / 2 - 12            # 120 = centro da área de texto (240 px)
+        cols.append(max(0, int(x // 8)))
+    return cols
 
 
 def stage_tiles(stage):

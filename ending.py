@@ -22,3 +22,8 @@ START = (4, 8)
 MESSAGES = [
     ('box', ['TODOS OS AMIGOS', 'ESTÃO FELIZES!'], None),
 ]
+
+# Inglês (o que não estiver aqui usa o texto em português)
+MESSAGES_EN = {
+    'box': ['ALL THE FRIENDS', 'ARE HAPPY!'],
+}

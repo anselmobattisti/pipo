@@ -22,7 +22,8 @@ termina numa estrela, e a cada estrela o Pipo cresce um pouco, até virar galo.
 - **Fase 11 — Os ovos da galinha:** achar os ovos escondidos no feno e levar ao ninho.
 
 **Abertura:** um ovo no ninho balança, racha e o Pipo nasce; aparece o título
-PIPO NO JARDIM. Qualquer botão começa (e também pula a animação do ovo).
+PIPO NO JARDIM e a escolha de idioma (**português** ou **inglês**): o direcional
+troca e qualquer outro botão começa o jogo. Apertar durante o ovo pula a animação.
 
 **Tela final:** depois da fase 11, todos os amigos aparecem felizes, o galo passeia e
 canta, com um grande FIM!. Um botão volta para a abertura.
@@ -36,12 +37,14 @@ frango). Na última fase vira um galo e canta "có-có-ri-có". Depois vem a tel
 |:---:|:---:|
 | ![Fase 1](docs/img/fase1.png) | ![Fase 2](docs/img/fase2.png) |
 | **Fase 1:** cada bola na cesta da sua cor | **Fase 2:** as bolas puladoras |
-| ![Fase 4](docs/img/fase4.png) | ![Fase 5](docs/img/fase5.png) |
-| **Fase 4:** o coelho escondido no arbusto | **Fase 5:** os botões fazem aparecer as pontes |
-| ![Fase 6](docs/img/fase6.png) | ![Fase 8](docs/img/fase8.png) |
-| **Fase 6:** a fila de patinhos | **Fase 8:** os bichinhos de barriga cheia |
-| ![Fase 9](docs/img/fase9.png) | ![Fase 11](docs/img/fase11.png) |
-| **Fase 9:** a noite dos vaga-lumes | **Fase 11:** o Pipo vira galo |
+| ![Escolha de idioma](docs/img/idioma.png) | ![Fase 5](docs/img/fase5.png) |
+| **Abertura:** escolha de idioma | **Fase 5:** os botões fazem aparecer as pontes |
+| ![Fase 4](docs/img/fase4.png) | ![Fase 6](docs/img/fase6.png) |
+| **Fase 4:** o coelho escondido no arbusto | **Fase 6:** a fila de patinhos |
+| ![Fase 8](docs/img/fase8.png) | ![Fase 9](docs/img/fase9.png) |
+| **Fase 8:** os bichinhos de barriga cheia | **Fase 9:** a noite dos vaga-lumes |
+| ![Fase 11](docs/img/fase11.png) | |
+| **Fase 11:** o Pipo vira galo | |
 
 **O Pipo crescendo, fase a fase:**
 
@@ -65,7 +68,7 @@ frango). Na última fase vira um galo e canta "có-có-ri-có". Depois vem a tel
 | Arquivo | O que tem |
 |---|---|
 | `title.py`, `ending.py` | mapas e textos da abertura e da tela final |
-| `level1.py` … `level11.py` | mapa de cada fase (as letras estão explicadas no topo de cada arquivo), início do Pipo e textos da estrela |
+| `level1.py` … `level11.py` | mapa de cada fase (as letras estão explicadas no topo de cada arquivo), início do Pipo e textos da estrela em português (`MESSAGES`) e inglês (`MESSAGES_EN`) |
 | `tools/growth.py` | desenho dos 12 estágios do Pipo (pintinho → galo) |
 | `tools/assets.py` | desenhos (blocos, Pipo, bolas), paletas e o desenho das mensagens (fonte proporcional, tamanho em `TEXT_SIZE`) |
 | `build.py` | código do jogo em assembly 65816 (DSL em Python), ordem das fases (`LEVELS`) e montagem da ROM |

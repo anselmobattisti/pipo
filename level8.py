@@ -27,3 +27,10 @@ MESSAGES = [
     ('grow', ['OLHA SÓ!', 'O PIPO CRESCEU!'], 'next'),
     ('next', ['AGORA VAI', 'ANOITECER...'], None),
 ]
+
+# Inglês (o que não estiver aqui usa o texto em português)
+MESSAGES_EN = {
+    'star1': ['THE ANIMALS', 'ARE HAPPY!'],
+    'next': ["NOW IT'S", 'GETTING DARK...'],
+    'grow': ['LOOK!', 'PIPO GREW UP!'],
+}

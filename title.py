@@ -18,6 +18,7 @@ LEVEL = [
 
 START = (7, 7)   # onde o ovo está (em cima do ninho)
 
+# escolha de idioma: o direcional troca, qualquer outro botão confirma
 MESSAGES = [
-    ('prompt', ['APERTE UM BOTÃO', 'PARA JOGAR!'], None),
+    ('lang', ['PORTUGUÊS', 'ENGLISH'], None),
 ]

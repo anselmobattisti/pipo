@@ -27,3 +27,11 @@ MESSAGES = [
     ('crow', ['CÓ-CÓ-RI-CÓ!'], 'end1'),
     ('end1', ['VOCÊ É', 'INCRÍVEL!'], None),
 ]
+
+# Inglês (o que não estiver aqui usa o texto em português)
+MESSAGES_EN = {
+    'star1': ['YOU FOUND ALL', 'THE EGGS!'],
+    'grow': ['PIPO BECAME', 'A ROOSTER!'],
+    'crow': ['COCK-A-', 'DOODLE-DOO!'],
+    'end1': ['YOU ARE', 'AMAZING!'],
+}
