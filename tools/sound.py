@@ -41,25 +41,25 @@ def seq(*events, loop=False):
     return bytes(out)
 
 
-# ---------------------------------------------------------------- música (original)
-# Cantiga de ninar simples em dó maior, 8 compassos que se repetem.
+# ---------------------------------------------------------------- música
+# Melodia da cantiga folclórica "Sapo Cururu" (domínio público), em dó maior e 2/4,
+# com um final que volta para o dó para a música repetir sem emenda.
+#   Sa-po cu-ru-ru / na bei-ra do ri-o / quan-do o sa-po can-ta, ó ma-ni-nha /
+#   é por-que tem fri-o
 H, E = 2 * Q, Q // 2
 MELODY = seq(
-    ('C5', Q), ('E5', Q), ('G5', Q), ('E5', Q),
-    ('F5', Q), ('A5', Q), ('G5', H),
-    ('E5', Q), ('G5', Q), ('C6', Q), ('G5', Q),
-    ('A5', Q), ('G5', Q), ('E5', H),
-    ('D5', Q), ('F5', Q), ('A5', Q), ('F5', Q),
-    ('G5', Q), ('F5', E), ('E5', E), ('D5', H),
-    ('C5', Q), ('E5', Q), ('D5', Q), ('G4', Q),
-    ('C5', H), (None, H),
+    ('G4', E), ('A4', E), ('G4', E), ('E4', E), ('C5', Q), (None, Q),        # sapo cururu
+    ('G4', E), ('A4', E), ('G4', E), ('A4', E), ('C5', Q), ('C5', Q),        # na beira do rio
+    ('E5', E), ('E5', E), ('D5', E), ('E5', E), ('F5', Q), ('D5', Q),        # quando o sapo canta
+    ('B4', E), ('G4', E), ('G4', Q),                                         # ó maninha
+    ('A4', E), ('A4', E), ('G4', E), ('F4', E), ('E4', Q), ('D4', Q),        # é porque tem frio
+    ('C4', H),
     loop=True)
-BASS = seq(
-    ('C3', H), ('G3', H), ('F3', H), ('C3', H),
-    ('C3', H), ('G3', H), ('F3', H), ('C3', H),
-    ('D3', H), ('A3', H), ('G3', H), ('G2', H),
-    ('C3', H), ('G3', H), ('C3', H), ('G2', H),
+BASS = seq(                       # um acorde por compasso (mínimas)
+    ('C3', H), ('C3', H), ('F3', H), ('C3', H), ('C3', H),
+    ('D3', H), ('G2', H), ('F3', H), ('G2', H), ('C3', H),
     loop=True)
+
 
 EFFECTS = {
     'pick': seq(('C6', 5), ('G6', 12)),

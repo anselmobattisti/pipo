@@ -135,8 +135,13 @@ class Player:
         assert self.var('msg_active'), 'mensagem do sapo'
         if B.intro_data(B.ALL[lv])[0]:
             assert before != bytes(self.emu.wram[B.MAPBUF:B.MAPBUF + 224]), 'o sapo não mudou nada'
-        assert bytes(self.emu.wram[B.MAPBUF:B.MAPBUF + 224]) == B.level_bytes(B.ALL[lv])[0], \
-            'depois do sapo a fase deveria ficar como no mapa'
+        now = bytes(self.emu.wram[B.MAPBUF:B.MAPBUF + 224])
+        if getattr(B.ALL[lv], 'HIDE_RANDOM', False):     # amigos sorteados: contam como arbusto
+            hidden = {B.MT['bush_1'], B.MT['bush_2'], B.MT['bush_3']}
+            assert sum(c in hidden for c in now) == 3, 'três amigos escondidos'
+            now = bytes(B.MT['bush'] if c in hidden else c for c in now)
+            assert all(self.emu.wram[B.R_ON + 2 * i] == 0 for i in range(3)), 'amigos sumiram nos arbustos'
+        assert now == B.level_bytes(B.ALL[lv])[0], 'depois do sapo a fase deveria ficar como no mapa'
         self.expect_sfx(k, 'laugh')
         self.frames(25)
         if name:
@@ -156,14 +161,16 @@ class Player:
     def chase(self, i, item=None):
         item = item or i + 1
         for _ in range(200):
-            if self.var('carry') == item:
+            if self.var('carry'):          # pegou esta ou outra bola no caminho
                 return
             d = self.first_step({(self.actor(i, 'TX'), self.actor(i, 'TY'))})
             if d is None:
                 self.frames(4)
             else:
                 self.go(d)
-        raise AssertionError('não conseguiu pegar a bola %d' % i)
+        raise AssertionError('não conseguiu pegar a bola %d (pipo %s, bola %s/%s px %s,%s, ativa %d, carry %d, modo %d, msg %d)' % (
+            i, self.pos(), self.actor(i, 'TX'), self.actor(i, 'TY'), self.actor(i, 'X'), self.actor(i, 'Y'),
+            self.actor(i, 'ACT'), self.var('carry'), self.var('mode'), self.var('msg_active')))
 
     def finish_star(self, level_mod, star, name):
         """Encosta na estrela, passa as mensagens e confere a troca de fase."""
@@ -267,10 +274,12 @@ def main():
     assert any((p.actor(i, 'TX'), p.actor(i, 'TY')) != pos
                for i, pos in enumerate(find(L, 'r') + find(L, 'b') + find(L, 'y'))), 'bolas paradas?'
     p.shot('f2_pulando')
-    for i, basket in enumerate('123'):
-        p.chase(i)
-        p.touch(*find(L, basket)[0])
-        assert p.var('delivered') == i + 1
+    while p.var('delivered') < 3:      # entrega a bola que estiver carregando
+        n = p.var('delivered')
+        if not p.var('carry'):
+            p.chase(next(i for i in range(3) if p.actor(i, 'ACT')))
+        p.touch(*find(L, '123'[p.var('carry') - 1])[0])
+        assert p.var('delivered') == n + 1 and not p.var('carry')
     p.finish_star(L, find(L, '*')[0], 'f2_estrela')
 
     # ---------------- fase 3: formas
@@ -289,16 +298,17 @@ def main():
     # ---------------- fase 4: esconde-esconde
     L = B.level4
     p.shot('f4_inicio')
-    bx, by = find(L, 'B')[0]
+    bx, by = next(xy for xy in find(L, 'B') if p.tile(*xy) == MT['bush'])   # arbusto vazio
     k = len(p.emu.spc.kon_log)
     p.touch(bx, by)
     assert p.var('delivered') == 0, 'arbusto vazio não conta'
     p.expect_sfx(k, 'leaves')
-    for ch, friend in (('h', 'rabbit'), ('j', 'bird'), ('k', 'hedgehog')):
-        x, y = find(L, ch)[0]
+    spots = {p.tile(x, y): (x, y) for y in range(14) for x in range(16)}
+    for n, friend in ((1, 'rabbit'), (2, 'bird'), (3, 'hedgehog')):
+        x, y = spots[MT['bush_%d' % n]]
         p.touch(x, y)
         assert p.tile(x, y) == MT[friend]
-        if ch == 'h':
+        if n == 1:
             p.shot('f4_achou_coelho')
     assert p.var('delivered') == 3
     p.frames(6); p.shot('f4_portao')

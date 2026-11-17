@@ -986,13 +986,38 @@ def spr_frog_wrapped(frame):
     return im
 
 
+def _friend_sprite(mt_fn):
+    """Amigo da fase 4 como sprite: o desenho do bloco sem a grama, nas cores mais
+    próximas de uma das paletas de sprites. Devolve (imagem, usa_paleta_1)."""
+    src = mt_fn()
+    best = None
+    for use2, pal in ((False, SPR_PAL), (True, SPR_PAL2)):
+        im, err = Image.new('P', (16, 16), 0), 0
+        for y in range(16):
+            for x in range(16):
+                c = src.getpixel((x, y))
+                if c in (0, 1, 2):          # grama = transparente
+                    continue
+                r, g, b = BG_PAL1[c]
+                k, e = min(((i, (r - pr) ** 2 + (g - pg) ** 2 + (b - pb) ** 2)
+                            for i, (pr, pg, pb) in enumerate(pal) if i), key=lambda t: t[1])
+                im.putpixel((x, y), k); err += e
+        if best is None or err < best[0]:
+            best = (err, im, use2)
+    return best[1], best[2]
+
+
+FRIEND_SPRITES = {'rabbit_s': lambda: mt_rabbit(), 'bird_s': lambda: mt_bird(),
+                  'hedgehog_s': lambda: mt_hedgehog()}
+
 HUD_SPRITES = [(str(n), (lambda n=n: _glyph(str(n)))) for n in range(10)] + [   # número da fase
     ('blanket_half', lambda: spr_blanket(False)),  # coberta do Cururu (paleta 1)
     ('blanket', lambda: spr_blanket(True)),
     ('frog_wrap0', lambda: spr_frog_wrapped(0)), ('frog_wrap1', lambda: spr_frog_wrapped(1)),
-]
+] + [(n, (lambda f=f: _friend_sprite(f)[0])) for n, f in FRIEND_SPRITES.items()]   # amigos correndo
 HUD = {name: i for i, (name, _) in enumerate(HUD_SPRITES)}
-HUD_PAL2_CELLS = {'blanket_half', 'blanket', 'frog_wrap0', 'frog_wrap1'}
+HUD_PAL2_CELLS = {'blanket_half', 'blanket', 'frog_wrap0', 'frog_wrap1'} | {
+    n for n, f in FRIEND_SPRITES.items() if _friend_sprite(f)[1]}
 
 
 def hud_tile(name):

@@ -20,7 +20,9 @@ arruma tudo.
 - **Fase 1 — O Jardim:** bolas paradas; cada uma vai na cesta da mesma cor.
 - **Fase 2 — Bolas Puladoras:** as bolas quicam e pulam pelo campo; é só encostar para pegar.
 - **Fase 3 — Formas:** círculo, quadrado e triângulo vão no buraco do mesmo formato.
-- **Fase 4 — Esconde-esconde:** os arbustos soltam folhinhas; três escondem um amigo (coelho, passarinho, ouriço).
+- **Fase 4 — Esconde-esconde:** o coelho, o passarinho e o ouriço brincam juntos; o Cururu
+  chega, eles se assustam e cada um corre para um arbusto **sorteado na hora** (a cada partida
+  os esconderijos mudam). Os arbustos soltam folhinhas; achar os três abre o portão.
 - **Fase 5 — Botões e pontes:** pisar num botão colorido faz aparecer a ponte da mesma cor.
 - **Fase 6 — Filhotes perdidos:** os patinhos seguem o Pipo em fila até a mamãe pata.
 - **Fase 7 — Regar as flores:** pegar o regador e regar 3 brotinhos, que viram flores.
@@ -116,7 +118,8 @@ resto em 16×16). Os gráficos do Pipo de cada tamanho e os textos são enviados
 VRAM só quando precisam.
 
 ## Som
-Uma cantiga de ninar original em loop (melodia + baixo) e efeitos curtos:
+A música de fundo é a melodia da cantiga folclórica **"Sapo Cururu"** (domínio público),
+em loop com um baixo simples, e há efeitos curtos:
 pegar algo, acertar, portão/ponte, estrela, patinhos/amigos e folhinhas.
 As notas são escritas como `('C5', duração)` em `tools/sound.py` (duração em
 centésimos de segundo; `Q` = uma semínima).

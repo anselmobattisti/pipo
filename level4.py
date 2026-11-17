@@ -1,15 +1,17 @@
 # Fase 4 — "Esconde-esconde"
 # Todos os arbustos parecem iguais. Encostar faz voar folhinhas; em três deles
-# tem um amigo escondido:  h coelho   j passarinho   k ouriço   (B = arbusto vazio)
+# tem um amigo escondido (coelho, passarinho, ouriço). Os três começam juntos
+# brincando (FRIENDS); o sapo chega, eles se assustam e cada um corre para um
+# arbusto (B) sorteado na hora — a cada vez os esconderijos mudam.
 LEVEL = [
     'TTTTTTTTTTTTTTTT',
     'T.*.f....B....,T',
-    'T...f..h....B..T',
+    'T...f..B....B..T',
     'TffGf.......,..T',
     'T.......B......T',
-    'T.B..........j.T',
+    'T.B..........B.T',
     'T.....,..B.....T',
-    'T..k......,....T',
+    'T..B......,....T',
     'T.......P....B.T',
     'T.B....B.......T',
     'T....,.....B...T',
@@ -20,9 +22,11 @@ LEVEL = [
 
 START = (7, 10)
 
-# o sapo Cururu bagunça a fase no começo: visita estas letras do mapa, nesta ordem
-# (letras repetidas = a 1ª, 2ª, ... ocorrência, lendo o mapa linha por linha)
-CURURU = ['h', 'j', 'k']
+HIDE_RANDOM = True
+FRIENDS = [(5, 8), (6, 8), (7, 8)]   # onde o coelho, o passarinho e o ouriço brincam juntos
+
+# o sapo Cururu pula até perto dos amigos e os assusta
+CURURU = [(6, 7, 'scare')]
 
 MESSAGES = [
     ('intro', ['O SAPO CURURU', 'ASSUSTOU OS AMIGOS', 'E ELES SE ESCONDERAM!'], None),

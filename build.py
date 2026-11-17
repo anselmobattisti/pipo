@@ -90,6 +90,11 @@ FROG_OAM = 12
 # cena final (papai, mamãe e a coberta do Cururu)
 CUT_T, CUT_OFS, CUT_EV, CUT_DONE, CUT_PB = 0x1520, 0x1522, 0x1524, 0x1526, 0x1528
 CUT_OAM = 13          # OAM 13 coberta, 14 papai, 15 mamãe (32x32), 16 Cururu
+# amigos que correm para se esconder (fase 4): 3 de cada, uma palavra por amigo
+R_ON, R_X, R_Y, R_VX, R_VY, R_T, R_DST = 0x1530, 0x1538, 0x1540, 0x1548, 0x1550, 0x1558, 0x1560
+RUN_OAM = 17          # OAM 17-19
+RUN_FRAMES = 64       # quadros da corrida até o arbusto (posição em 8.8: v = distância*4)
+SCARE = 0x80          # bit de "assustar" no campo REVELA do roteiro do sapo
 
 VRAM_BG1_TILES = 0x0000
 VRAM_FONT = 0x3000
@@ -197,6 +202,7 @@ def build():
     emit_hud(a)
     emit_intro(a)
     emit_cutscene(a, cut_addr)
+    emit_runners(a)
     emit_nmi(a)
     emit_data(a, mt_table, msgs, msg_src, stage_src, logo_maps)
     spc_blob, _ = sound.build_driver()
@@ -311,6 +317,7 @@ def emit_main(a):
     a.jsr('read_joy')
     a.jsr('send_sound')
     a.inc(V['frame_ctr'])
+    a.jsr('rand')                             # o sorteio depende de quando se aperta os botões
     a.lda(V['happy']); a.beq('no_happy'); a.dec(V['happy'])
     a.label('no_happy')
     a.lda(V['fx_timer']); a.beq('no_fx'); a.dec(V['fx_timer'])
@@ -335,6 +342,7 @@ def emit_main(a):
     a.jsr('draw_sprites')
     a.jsr('draw_hud')
     a.jsr('draw_frog')
+    a.jsr('draw_runners')
     a.jmp('main_loop')
 
     a.label('wait_frame')
@@ -951,6 +959,12 @@ def emit_level(a):
     a.a8(); a.sta(MAPBUF, 'y'); a.rep(0x20)
     a.inx(); a.inx(); a.inx(); a.inx(); a.bra('rl_tidy')
     a.label('rl_notidy')
+    for i in range(3):
+        a.stz(R_ON + 2 * i)
+    a.lda(V['level']); a.asl(); a.tax()
+    a.lda('lvl_hide', 'x'); a.beq('rl_nohide')
+    a.jsr('hide_friends')
+    a.label('rl_nohide')
     a.stz(V['tmp0'])
     a.label('rl_draw')
     a.ldx(V['tmp0']); a.jsr('draw_cell')
@@ -1375,6 +1389,11 @@ def intro_data(L):
     seen = {}
     tidy, events = [], []
     for k, ch in enumerate(spots):
+        last = k == len(spots) - 1
+        if isinstance(ch, tuple):                          # (x, y, 'scare'): assusta os amigos
+            x, y, _ = ch
+            events.append(((x * 16, y * 16), 'laugh' if last else 'mischief', [], SCARE, 90))
+            continue
         n = seen.get(ch, 0); seen[ch] = n + 1
         x, y = pos[ch][n]
         idx = y * 16 + x
@@ -1391,7 +1410,6 @@ def intro_data(L):
                 below = L.LEVEL[y + 1][x]
                 tidy.append((idx + 16, MT[MT_NEXT[CHAR_MT[below]]]))
                 changes.append((idx + 16, MT[CHAR_MT[below]]))
-        last = k == len(spots) - 1
         sfx_name = 'laugh' if last else CURURU_SFX.get(ch, 'mischief')
         events.append(((x * 16, y * 16), sfx_name, changes, reveal, 45 if last else 22))
     home = pos.get('F', [None])[0]
@@ -1428,6 +1446,7 @@ def intro_data(L):
 def emit_intro(a):
     # update_intro: o sapo pula de lugar em lugar bagunçando a fase
     a.label('update_intro')
+    a.jsr('update_runners')
     a.lda(IN_HOP); a.bne('ui_hopping')
     a.dec(IN_PAUSE); a.beq('ui_next')
     a.rts()
@@ -1470,7 +1489,11 @@ def emit_intro(a):
     a.inx(); a.inx(); a.inx(); a.inx()
     a.dec(IN_CNT); a.bra('ui_chg')
     a.label('ui_chg_done')
-    a.lda(0, 'x'); a.ora(IN_REVEAL); a.sta(IN_REVEAL)
+    a.lda(0, 'x'); a.bit('#', SCARE); a.beq('ui_norun')
+    a.phx(); a.jsr('start_runners'); a.plx()
+    a.lda(0, 'x')
+    a.label('ui_norun')
+    a.ora(IN_REVEAL); a.sta(IN_REVEAL)
     a.lda(2, 'x'); a.sta(IN_PAUSE)
     a.inx(); a.inx(); a.inx(); a.inx()
     a.stx(IN_IP)
@@ -1643,6 +1666,97 @@ def emit_cutscene(a, cut_addr):
     a.rts()
 
 
+HIDE_LEVELS = [L for L in LEVELS if getattr(L, 'HIDE_RANDOM', False)]
+assert len(HIDE_LEVELS) <= 1
+FRIEND_NAMES = ['rabbit_s', 'bird_s', 'hedgehog_s']   # amigo i se esconde no metatile bush_(i+1)
+
+
+def hide_list(L):
+    """Índices no mapa de todos os arbustos (B) da fase."""
+    out = [y * 16 + x for y, row in enumerate(L.LEVEL) for x, c in enumerate(row) if c == 'B']
+    assert 3 <= len(out) <= 16, 'a fase de esconde-esconde precisa de 3 a 16 arbustos'
+    return out
+
+
+def emit_runners(a):
+    # hide_friends: A = endereço da lista de arbustos (quantidade, índices...).
+    # Sorteia 3 arbustos diferentes, um para cada amigo, e põe os amigos juntos.
+    a.label('hide_friends')
+    a.sta(V['tmp3'])
+    a.ldy('#', 0)
+    a.label('hf_pick')
+    a.jsr('rand')
+    a.and_('#', 15); a.ldx(V['tmp3']); a.cmp(0, 'x'); a.bcs('hf_pick')
+    a.asl(); a.clc(); a.adc(V['tmp3']); a.tax(); a.lda(2, 'x')
+    a.cpy('#', 0); a.beq('hf_ok')
+    a.cmp(R_DST); a.beq('hf_pick')
+    a.cpy('#', 2); a.beq('hf_ok')
+    a.cmp(R_DST + 2); a.beq('hf_pick')
+    a.label('hf_ok')
+    a.sta(R_DST, 'y')
+    a.iny(); a.iny(); a.cpy('#', 6); a.bne('hf_pick')
+    for i in range(3):
+        a.ldx(R_DST + 2 * i)
+        a.lda('#', MT['bush_%d' % (i + 1)])
+        a.a8(); a.sta(MAPBUF, 'x'); a.rep(0x20)
+        a.lda(('+', 'hide_group', 4 * i)); a.sta(R_X + 2 * i)
+        a.lda(('+', 'hide_group', 4 * i + 2)); a.sta(R_Y + 2 * i)
+        a.lda('#', 1); a.sta(R_ON + 2 * i)
+    a.rts()
+
+    # start_runners: o sapo assustou! cada amigo corre para o seu arbusto
+    a.label('start_runners')
+    for i in range(3):
+        a.lda('#', 2); a.sta(R_ON + 2 * i)
+        a.lda('#', RUN_FRAMES); a.sta(R_T + 2 * i)
+        a.lda(R_X + 2 * i); a.xba(); a.and_('#', 0xFF); a.sta(V['tmp0'])
+        a.lda(R_DST + 2 * i); a.and_('#', 0x0F); a.asl(); a.asl(); a.asl(); a.asl()
+        a.sec(); a.sbc(V['tmp0']); a.asl(); a.asl(); a.sta(R_VX + 2 * i)
+        a.lda(R_Y + 2 * i); a.xba(); a.and_('#', 0xFF); a.sta(V['tmp0'])
+        a.lda(R_DST + 2 * i); a.and_('#', 0xF0)
+        a.sec(); a.sbc(V['tmp0']); a.asl(); a.asl(); a.sta(R_VY + 2 * i)
+    a.rts()                                   # (o som é a risada do sapo, no mesmo quadro)
+
+    # update_runners: anda; quem chega some no arbusto (com folhinhas)
+    a.label('update_runners')
+    for i in range(3):
+        nxt = 'ur_n%d' % i
+        a.lda(R_ON + 2 * i); a.cmp('#', 2); a.bne(nxt)
+        a.lda(R_X + 2 * i); a.clc(); a.adc(R_VX + 2 * i); a.sta(R_X + 2 * i)
+        a.lda(R_Y + 2 * i); a.clc(); a.adc(R_VY + 2 * i); a.sta(R_Y + 2 * i)
+        a.dec(R_T + 2 * i); a.bne(nxt)
+        a.stz(R_ON + 2 * i)
+        a.lda(R_DST + 2 * i); a.sta(V['target'])
+        a.lda('#', MT['bush_%d' % (i + 1)]); a.jsr('set_tile'); a.jsr('fx_at_target')
+        sfx(a, 'leaves')
+        a.label(nxt)
+    a.rts()
+
+    # draw_runners: OAM 17-19
+    a.label('draw_runners')
+    for i in range(3):
+        o = OAM + 4 * (RUN_OAM + i)
+        hide, done = 'dr_h%d' % i, 'dr_d%d' % i
+        a.lda(R_ON + 2 * i); a.beq(hide)
+        a.lda(V['frame_ctr']); a.lsr(); a.lsr()
+        a.ldx(R_ON + 2 * i); a.cpx('#', 2); a.beq('dr_run%d' % i)
+        a.lsr(); a.lsr()                      # parados: pulinhos mais lentos
+        a.label('dr_run%d' % i)
+        a.and_('#', 1); a.asl(); a.sta(V['tmp0'])    # 0 ou 2 px para cima
+        a.lda(R_Y + 2 * i); a.xba(); a.and_('#', 0xFF); a.sec(); a.sbc(V['tmp0']); a.xba()
+        a.sta(V['tmp1'])
+        a.lda(R_X + 2 * i); a.xba(); a.and_('#', 0xFF); a.ora(V['tmp1'])
+        a.sta(o)
+        t = A.hud_tile(FRIEND_NAMES[i])
+        attr = 0x20 | (0x02 if FRIEND_NAMES[i] in A.HUD_PAL2_CELLS else 0) | (t >> 8)
+        a.lda('#', (t & 0xFF) | (attr << 8)); a.sta(o + 2)
+        a.bra(done)
+        a.label(hide)
+        a.lda('#', 0xE000); a.sta(o)
+        a.label(done)
+    a.rts()
+
+
 # ================================================================== NMI
 def emit_nmi(a):
     a.label('nmi')
@@ -1796,6 +1910,15 @@ def emit_data(a, mt_table, msgs, msg_src, stage_src, logo_maps):
         a.word(f, kind, arg)
     a.word(0xFFFF, 0, 0)
     a.label('bit_tbl'); a.word(1, 2, 4)
+    for i, L in enumerate(ALL):
+        if L in HIDE_LEVELS:
+            lst = hide_list(L)
+            a.label('hide_list_%d' % i); a.word(len(lst), *lst)
+    a.label('lvl_hide'); a.word(*[('hide_list_%d' % i) if L in HIDE_LEVELS else 0 for i, L in enumerate(ALL)])
+    a.label('hide_group')
+    grp = HIDE_LEVELS[0].FRIENDS if HIDE_LEVELS else [(0, 0)] * 3
+    for x, y in grp:
+        a.word(x * 16 * 256, y * 16 * 256)
     a.label('speed_inc')
     a.word(*SPEED_INC)
     a.label('menu_msg')                       # mensagem (em português) de cada tela do menu
