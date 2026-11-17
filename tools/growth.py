@@ -19,7 +19,7 @@ def _colors(stage):
     return WHT, CREAM
 
 
-def bird(stage, direction, frame):
+def bird(stage, direction, frame, acc=None):
     s = stage / (STAGES - 1)
     im = Image.new('P', (32, 32), 0)
     d = ImageDraw.Draw(im)
@@ -133,6 +133,8 @@ def bird(stage, direction, frame):
             d.point((ex - 1, ey + 3), PNK)
     else:   # costas: só a nuca
         pass
+    if acc:                                  # enfeites (papai e mamãe do Pipo)
+        acc(d, hx, hy, r, direction, cx, by0, bw)
     return im
 
 
@@ -160,3 +162,49 @@ def head_top(stage):
         if any(im.getpixel((x, y)) for x in range(32)):
             return y
     return 16
+
+
+# ---------------------------------------------------------------- papai e mamãe
+def _popi_acc(d, hx, hy, r, direction, cx, by0, bw):
+    """Seu Popi: óculos e gravata-borboleta azul."""
+    BLUE, DBLUE_ = 9, 10
+    ny = hy + r + 1
+    if direction == 'down':
+        ex = max(2, (r * 2) // 5)
+        ey = hy - 1
+        for x in (hx - ex - 1, hx + ex):
+            d.ellipse((x - 2, ey - 1, x + 3, ey + 4), outline=BLK)
+        d.line((hx - ex + 3, ey + 1, hx + ex - 2, ey + 1), fill=BLK)
+        d.polygon([(hx - 4, ny - 2), (hx, ny), (hx - 4, ny + 2)], fill=BLUE, outline=DBLUE_)
+        d.polygon([(hx + 4, ny - 2), (hx, ny), (hx + 4, ny + 2)], fill=BLUE, outline=DBLUE_)
+    elif direction == 'side':
+        ex = hx + max(1, r // 3)
+        d.ellipse((ex - 2, hy - 2, ex + 3, hy + 3), outline=BLK)
+        d.line((ex - 2, hy, hx - r + 1, hy - 1), fill=BLK)
+        d.polygon([(hx - 3, ny - 2), (hx + 1, ny), (hx - 3, ny + 2)], fill=BLUE, outline=DBLUE_)
+
+
+def _pipa_acc(d, hx, hy, r, direction, cx, by0, bw):
+    """Senhora Pipa: laço cor-de-rosa na cabeça."""
+    bx, by = hx + (r - 2 if direction != 'side' else -r + 3), hy - r + 1
+    d.polygon([(bx - 4, by - 3), (bx, by), (bx - 4, by + 3)], fill=PNK, outline=OUT)
+    d.polygon([(bx + 4, by - 3), (bx, by), (bx + 4, by + 3)], fill=PNK, outline=OUT)
+    d.rectangle((bx - 1, by - 1, bx + 1, by + 1), fill=RED)
+
+
+PARENT_FRAMES = [('down', 0), ('down', 1), ('side', 0), ('side', 1)]
+
+
+def parents_sheet():
+    """Bloco 128x64 (como uma área de estágio): Seu Popi na linha de cima,
+    Senhora Pipa na de baixo; quadros baixo0 baixo1 lado0 lado1."""
+    sheet = Image.new('P', (128, 64), 0)
+    for row, (stage, acc) in enumerate(((11, _popi_acc), (8, _pipa_acc))):
+        for k, (dr, fr) in enumerate(PARENT_FRAMES):
+            sheet.paste(bird(stage, dr, fr, acc), (k * 32, row * 32))
+    return sheet
+
+
+def parent_tile(who, k):
+    """Tile (dentro da área) do quadro k do papai (0) ou da mamãe (1)."""
+    return who * 64 + k * 4

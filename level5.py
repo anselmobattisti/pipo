@@ -21,7 +21,12 @@ LEVEL = [
 
 START = (3, 9)
 
+# o sapo Cururu bagunça a fase no começo: visita estas letras do mapa, nesta ordem
+# (letras repetidas = a 1ª, 2ª, ... ocorrência, lendo o mapa linha por linha)
+CURURU = ['x', 'v', 'z']
+
 MESSAGES = [
+    ('intro', ['O SAPO CURURU', 'QUEBROU', 'AS PONTES!'], None),
     ('star1', ['OBA!', 'AS PONTES', 'APARECERAM!'], 'grow'),
     ('grow', ['OLHA SÓ!', 'O PIPO CRESCEU!'], 'next'),
     ('next', ['AGORA AJUDE', 'OS PATINHOS!'], None),
@@ -29,6 +34,7 @@ MESSAGES = [
 
 # Inglês (o que não estiver aqui usa o texto em português)
 MESSAGES_EN = {
+    'intro': ['CURURU THE TOAD', 'BROKE', 'THE BRIDGES!'],
     'star1': ['YAY!', 'THE BRIDGES', 'APPEARED!'],
     'next': ['NOW HELP', 'THE DUCKLINGS!'],
     'grow': ['LOOK!', 'PIPO GREW UP!'],

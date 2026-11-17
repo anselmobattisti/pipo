@@ -28,7 +28,12 @@ START = (7, 7)  # coluna, linha do Pipo
 
 # Mensagens: (nome, [até 3 linhas], próxima mensagem ou None)
 # Só a estrela mostra texto; as outras ações têm só animação.
+# o sapo Cururu bagunça a fase no começo: visita estas letras do mapa, nesta ordem
+# (letras repetidas = a 1ª, 2ª, ... ocorrência, lendo o mapa linha por linha)
+CURURU = ['1', 'r', '2', 'b', '3', 'y']
+
 MESSAGES = [
+    ('intro', ['OH, NÃO!', 'O SAPO CURURU', 'ESPALHOU AS BOLAS!'], None),
     ('star1', ['PARABÉNS!', 'VOCÊ ACHOU A', 'ESTRELA!'], 'grow'),
     ('grow', ['OLHA SÓ!', 'O PIPO CRESCEU!'], 'next'),
     ('next', ['AGORA AS BOLAS', 'VÃO PULAR!'], None),
@@ -36,6 +41,7 @@ MESSAGES = [
 
 # Inglês (o que não estiver aqui usa o texto em português)
 MESSAGES_EN = {
+    'intro': ['OH NO!', 'CURURU THE TOAD', 'SCATTERED THE BALLS!'],
     'star1': ['WELL DONE!', 'YOU FOUND', 'THE STAR!'],
     'next': ['NOW THE BALLS', 'WILL BOUNCE!'],
     'grow': ['LOOK!', 'PIPO GREW UP!'],

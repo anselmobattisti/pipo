@@ -27,16 +27,16 @@ import level7  # noqa: E402
 import level8  # noqa: E402
 import level9  # noqa: E402
 import level10  # noqa: E402
-import level11  # noqa: E402
 import title  # noqa: E402
 import ending  # noqa: E402
 
 # ordem das fases (depois da última volta para a primeira)
-LEVELS = [level1, level2, level3, level4, level5, level6, level7, level8, level9, level10, level11]
+LEVELS = [level1, level2, level3, level4, level5, level6, level7, level8, level9, level10]
 SCREENS = [title, ending]          # abertura e tela final usam a mesma estrutura de mapa
 ALL = LEVELS + SCREENS
 TITLE, ENDING = len(LEVELS), len(LEVELS) + 1
-MODE_PLAY, MODE_TITLE, MODE_END = 0, 1, 2
+MODE_PLAY, MODE_TITLE, MODE_END, MODE_INTRO = 0, 1, 2, 3
+MSG_AUTO_FRAMES = 300   # os diálogos passam sozinhos depois de 5 s (ou antes, com um botão)
 
 # todas as mensagens de todas as fases, com prefixo "<fase>_": primeiro todas em
 # português, depois as mesmas em inglês (índice + NPT)
@@ -63,7 +63,7 @@ for _n in ('joy joy_prev joy_new px py tx ty move_cnt move_dir facing frame_ctr 
            'up_src up_bank up_left up_vaddr up_chunk msg_pending fx_timer fx_x fx_y '
            'followers hist_head mother_x mother_y snd_req snd_cnt '
            'pal_id pal_dirty pslot slot_stage slot_stage1 grow_t pu_src pu_bank pu_left pu_vaddr pu_slot '
-           'mode scr_t hide_player scene_on scene_x scene_y scene_tile logo_req lang menu_sel '
+           'mode scr_t hide_player scene_on scene_x scene_y scene_tile logo_req lang menu_sel menu_page snd_off speed spd_acc msg_auto '
            'lptr lptr_bank').split():
     VARS[_n] = _next
     _next += 2
@@ -83,6 +83,13 @@ DUCK_WAIT, DUCK_FOLLOW, DUCK_HOME = 1, 2, 3
 # histórico das posições do Pipo (para a fila de patinhos)
 HIST_X, HIST_Y = 0x1400, 0x1480   # 64 palavras cada
 HIST_LEN = 64
+# o sapo Cururu bagunçando a fase (introdução)
+IN_IP, IN_T, IN_X, IN_Y, IN_VX, IN_VY = 0x1500, 0x1502, 0x1504, 0x1506, 0x1508, 0x150A
+IN_PAUSE, IN_REVEAL, IN_HOP, IN_CNT = 0x150C, 0x150E, 0x1510, 0x1512
+FROG_OAM = 12
+# cena final (papai, mamãe e a coberta do Cururu)
+CUT_T, CUT_OFS, CUT_EV, CUT_DONE, CUT_PB = 0x1520, 0x1522, 0x1524, 0x1526, 0x1528
+CUT_OAM = 13          # OAM 13 coberta, 14 papai, 15 mamãe (32x32), 16 Cururu
 
 VRAM_BG1_TILES = 0x0000
 VRAM_FONT = 0x3000
@@ -98,6 +105,9 @@ TM_TEXT = 0x15    # BG1 + BG3 + sprites
 
 BTN_UP, BTN_DOWN, BTN_LEFT, BTN_RIGHT = 0x0800, 0x0400, 0x0200, 0x0100
 BTN_ANY = 0xF0F0  # B Y Select Start A X L R
+SPEED_SLOW, SPEED_NORMAL, SPEED_FAST = 0, 1, 2
+SPEED_FRAMES = [32, 20, 12]        # quadros para andar um bloco (16 px) em cada velocidade
+SPEED_INC = [round(256 * 8 / f) for f in SPEED_FRAMES]   # a cada 256 acumulados = passo de 2 px
 
 MT = A.MT
 COLORS = 'rby'
@@ -149,6 +159,23 @@ def build():
         bank = next(b for b in range(2, 8) if len(banks[b]) + len(blob) <= 0x8000)
         stage_src.append((bank, 0x8000 + len(banks[bank])))
         banks[bank] += blob
+    # papai e mamãe (uma área de sprites inteira) e a cena final quadro a quadro
+    par = growth.parents_sheet()
+    par_tiles = b''.join(A.tile_4bpp(par, tx * 8, ty * 8) for ty in range(8) for tx in range(16))
+    pb = next(b for b in range(2, 8) if len(banks[b]) + len(par_tiles) <= 0x8000)
+    gfx['parents'] = (pb, 0x8000 + len(banks[pb]))
+    banks[pb] += par_tiles
+    cut_blob, cut_events = ending_cutscene()
+    cb = next(b for b in range(2, 8) if len(banks[b]) + len(cut_blob) <= 0x8000)
+    cut_addr = (cb << 16) | (0x8000 + len(banks[cb]))
+    banks[cb] += cut_blob
+    global PARENTS_SRC, CUT_EVENT_LIST
+    PARENTS_SRC = gfx['parents']
+    CUT_EVENT_LIST = cut_events
+    hud_tiles, _ = A.build_hud()             # placar: estrelinhas e desenhos extras
+    hb = next(b for b in range(2, 8) if len(banks[b]) + len(hud_tiles) <= 0x8000)
+    gfx['hud'] = (hb, 0x8000 + len(banks[hb]), len(hud_tiles))
+    banks[hb] += hud_tiles
     msg_src = []
     for tiles, m in msgs:
         mapb = b''.join((0x2400 | t).to_bytes(2, 'little') for t in m)   # prioridade + paleta 1
@@ -167,6 +194,9 @@ def build():
     emit_level(a)
     emit_actors(a)
     emit_sprites(a)
+    emit_hud(a)
+    emit_intro(a)
+    emit_cutscene(a, cut_addr)
     emit_nmi(a)
     emit_data(a, mt_table, msgs, msg_src, stage_src, logo_maps)
     spc_blob, _ = sound.build_driver()
@@ -218,6 +248,8 @@ def emit_init(a, gfx, bg_tiles, box_tiles, spr_tiles, stage_src):
     vram_upload(a, VRAM_FONT, gfx['box_tiles'], len(box_tiles), bank=1)
     vram_upload(a, VRAM_SPR, gfx['spr_tiles'], len(spr_tiles), bank=1)
     vram_upload(a, VRAM_FONT + A.LOGO_TILE_BASE * 8, gfx['logo_tiles'], gfx['logo_size'], bank=1)
+    hb, hsrc, hsize = gfx['hud']
+    vram_upload(a, VRAM_SPR + A.HUD_TILE_BASE * 16, hsrc, hsize, bank=hb)
     bank0, src0 = stage_src[0]                # Pipo pequenino na área 0
     vram_upload(a, STAGE_SLOT_VRAM[0], src0, 4096, bank=bank0)
     a.a8(); a.stz(0x2121); a.rep(0x20)
@@ -256,11 +288,13 @@ def emit_init(a, gfx, bg_tiles, box_tiles, spr_tiles, stage_src):
     a.stz(OAM, 'x'); a.inx(); a.inx()
     a.cpx('#', 544); a.bne('cp_oam_hi')
     a.lda('#', 0x20); a.sta(OAM + 512)        # sprite 2 (Pipo) no tamanho grande 32x32
+    a.lda('#', 0xA0); a.sta(OAM + 515)        # 14 e 15 (papai e mamãe) também
     a.stz(V['pslot']); a.stz(V['slot_stage'])
     a.lda('#', 0xFF); a.sta(V['slot_stage1'])
 
     a.jsr('spc_upload')
     a.lda('#', 0xACE1); a.sta(V['rng'])
+    a.lda('#', SPEED_NORMAL); a.sta(V['speed'])
     a.lda('#', TITLE); a.sta(V['level'])     # começa pela abertura
     a.jsr('reset_level')
 
@@ -283,8 +317,11 @@ def emit_main(a):
     a.label('no_fx')
     a.jsr('update_grow')
     a.lda(V['mode']); a.beq('ml_game')
-    a.cmp('#', MODE_TITLE); a.bne('ml_end')
+    a.cmp('#', MODE_TITLE); a.bne('ml_intro')
     a.jsr('update_title'); a.bra('ml_draw')
+    a.label('ml_intro')
+    a.cmp('#', MODE_INTRO); a.bne('ml_end')
+    a.jsr('update_intro'); a.bra('ml_draw')
     a.label('ml_end')
     a.jsr('update_ending'); a.bra('ml_draw')
     a.label('ml_game')
@@ -296,6 +333,8 @@ def emit_main(a):
     a.jsr('update_actors')
     a.label('ml_draw')
     a.jsr('draw_sprites')
+    a.jsr('draw_hud')
+    a.jsr('draw_frog')
     a.jmp('main_loop')
 
     a.label('wait_frame')
@@ -351,45 +390,83 @@ def emit_main(a):
     a.lda(V['py']); a.clc(); a.adc('#', 3); a.sta(V['scene_y'])
     sfx(a, 'piu')
     a.lda('#', 60); a.sta(V['happy'])
-    a.lda('#', MSG['%d_lang' % TITLE]); a.jsr('show_msg_raw')
+    a.stz(V['menu_page'])
+    a.jmp('show_page')
+
+    # show_page: mostra a tela do menu (idioma / som / velocidade) com a opção atual
+    a.label('show_page')
+    a.lda(V['menu_page']); a.asl(); a.tax()
+    a.lda('menu_msg', 'x'); a.jsr('show_msg')
     a.lda('#', 0x3FF); a.sta(V['txt_scroll'])
-    a.lda(V['lang']); a.sta(V['menu_sel'])
+    a.ldx(V['menu_page'])
+    a.lda(V['lang']); a.cpx('#', 0); a.beq('sp_set')
+    a.lda(V['snd_off']); a.cpx('#', 1); a.beq('sp_set')
+    a.lda(V['speed'])
+    a.label('sp_set')
+    a.sta(V['menu_sel'])
     a.jmp('draw_menu')
     a.label('ut_wait')
     a.lda(V['scr_t']); a.and_('#', 127); a.bne('ut_2')
     a.lda('#', 40); a.sta(V['happy'])
     a.label('ut_2')
-    a.lda(V['scr_t']); a.cmp('#', 110); a.bcc('ut_ret')
-    a.lda(V['msg_pending']); a.bne('ut_ret')
-    # direcional: troca o idioma
+    a.lda(V['scr_t']); a.cmp('#', 110); a.jcc('ut_ret')
+    a.lda(V['msg_pending']); a.jne('ut_ret')
+    # direcional: troca a opção
     a.lda(V['joy_new']); a.and_('#', 0x0F00); a.beq('ut_btn')
+    a.ldx(V['menu_page']); a.cpx('#', 2); a.beq('ut_speed')
     a.lda(V['menu_sel']); a.eor('#', 1); a.sta(V['menu_sel'])
+    a.cpx('#', 1); a.bne('ut_note')
+    # som: vale na hora (desligado = volume zero; ligado = volume e um "plim")
+    a.sta(V['snd_off'])
+    a.eor('#', 1); a.ora('#', sound.CMD_MUTE); a.sta(V['snd_req'])
+    a.jmp('draw_menu')
+    a.label('ut_speed')                       # 3 opções: cima/esquerda volta, baixo/direita avança
+    a.lda(V['joy_new']); a.and_('#', BTN_UP | BTN_LEFT); a.beq('ut_sp_inc')
+    a.lda(V['menu_sel']); a.dec(); a.bpl('ut_sp_ok')
+    a.lda('#', 2); a.bra('ut_sp_ok')
+    a.label('ut_sp_inc')
+    a.lda(V['menu_sel']); a.inc(); a.cmp('#', 3); a.bcc('ut_sp_ok')
+    a.lda('#', 0)
+    a.label('ut_sp_ok')
+    a.sta(V['menu_sel'])
+    a.label('ut_note')
     sfx(a, 'note1')
     a.jmp('draw_menu')
     a.label('ut_btn')
-    # qualquer outro botão: confirma e começa a fase 1
+    # qualquer outro botão: confirma e vai para a próxima tela (ou começa a fase 1)
     a.lda(V['joy_new']); a.and_('#', BTN_ANY); a.beq('ut_ret')
-    a.lda(V['menu_sel']); a.sta(V['lang'])
+    a.lda(V['menu_sel'])
+    a.ldx(V['menu_page']); a.bne('ut_c1')
+    a.sta(V['lang']); a.bra('ut_cdone')
+    a.label('ut_c1')
+    a.cpx('#', 1); a.bne('ut_c2')
+    a.sta(V['snd_off']); a.bra('ut_cdone')
+    a.label('ut_c2')
+    a.sta(V['speed'])
+    a.label('ut_cdone')
     sfx(a, 'pick')
+    a.inc(V['menu_page'])
+    a.lda(V['menu_page']); a.cmp('#', len(title.MENU)); a.jcc('show_page')
     a.stz(V['level'])
     a.jmp('reset_level')
     a.label('ut_ret')
     a.rts()
 
-    # draw_menu: coração ao lado do idioma escolhido (dentro da caixa de texto)
+    # draw_menu: coração ao lado da opção escolhida (dentro da caixa de texto).
+    # menu_hpos[(lang*3 + página)*3 + opção] = posição no TXTBUF ($FFFF = não existe)
     a.label('draw_menu')
-    hx = menu_heart_cols()
-    for sel in (0, 1):
-        top = ((2 + 2 * sel) * 32 + 1 + hx[sel]) * 2
-        lbl_off = 'dm_off_%d' % sel
-        lbl_done = 'dm_done_%d' % sel
-        a.lda(V['menu_sel']); a.cmp('#', sel); a.bne(lbl_off)
-        a.lda('#', 0x2400 | A.box_tile('heart_t')); a.sta(TXTBUF + top)
-        a.lda('#', 0x2400 | A.box_tile('heart_b')); a.sta(TXTBUF + top + 64)
-        a.bra(lbl_done)
-        a.label(lbl_off)
-        a.lda('#', 0x2400 | A.box_tile('fill')); a.sta(TXTBUF + top); a.sta(TXTBUF + top + 64)
-        a.label(lbl_done)
+    a.lda(V['lang']); a.asl(); a.clc(); a.adc(V['lang']); a.clc(); a.adc(V['menu_page'])
+    a.sta(V['tmp0']); a.asl(); a.clc(); a.adc(V['tmp0']); a.sta(V['tmp0'])
+    for sel in range(3):                      # apaga os corações da tela
+        a.lda(V['tmp0']); a.clc(); a.adc('#', sel); a.asl(); a.tax()
+        a.lda('menu_hpos', 'x'); a.bmi('dm_skip_%d' % sel)
+        a.tax(); a.lda('#', 0x2400 | A.box_tile('fill'))
+        a.sta(TXTBUF, 'x'); a.sta(TXTBUF + 64, 'x')
+        a.label('dm_skip_%d' % sel)
+    a.lda(V['tmp0']); a.clc(); a.adc(V['menu_sel']); a.asl(); a.tax()
+    a.lda('menu_hpos', 'x'); a.tax()
+    a.lda('#', 0x2400 | A.box_tile('heart_t')); a.sta(TXTBUF, 'x')
+    a.lda('#', 0x2400 | A.box_tile('heart_b')); a.sta(TXTBUF + 64, 'x')
     a.a8(); a.lda('#', 1); a.sta(V['text_dirty']); a.rep(0x20)
     a.rts()
 
@@ -397,10 +474,21 @@ def emit_main(a):
     a.label('update_ending')
     a.lda(V['msg_pending']); a.beq('ue_0'); a.jsr('update_msg')
     a.label('ue_0')
+    a.jsr('cut_step')
+    a.lda(CUT_DONE); a.bne('ue_on')
+    a.rts()                                   # durante a cena: o Pipo só assiste
+    a.label('ue_on')
     a.inc(V['scr_t'])
     a.lda(V['scr_t']); a.cmp('#', 30000); a.bcc('ue_1')
     a.lda('#', 1000); a.sta(V['scr_t'])
     a.label('ue_1')
+    # a caixa alterna a cada ~4 s: amigos felizes <-> autores
+    a.lda(V['scr_t']); a.and_('#', 511); a.cmp('#', 256); a.bne('ue_c1')
+    a.lda('#', MSG['%d_credits' % ENDING]); a.jsr('show_msg'); a.bra('ue_c2')
+    a.label('ue_c1')
+    a.cmp('#', 0); a.bne('ue_c2')
+    a.lda('#', MSG['%d_box' % ENDING]); a.jsr('show_msg')
+    a.label('ue_c2')
     # botão: volta para a abertura
     a.lda(V['scr_t']); a.cmp('#', 120); a.bcc('ue_walk')
     a.lda(V['msg_pending']); a.bne('ue_walk')
@@ -519,10 +607,12 @@ def emit_text(a):
     a.rep(0x20)
     a.rts()
     a.label('um_shown')
+    a.dec(V['msg_auto']); a.beq('um_adv')     # passou o tempo: segue sozinho
     a.lda(V['msg_timer']); a.beq('um_ready')
     a.dec(V['msg_timer']); a.rts()
     a.label('um_ready')
     a.lda(V['joy_new']); a.and_('#', BTN_ANY); a.beq('um_done')
+    a.label('um_adv')
     a.lda(V['msg_next']); a.cmp('#', 0xFF); a.beq('um_close')
     a.jmp('show_msg_raw')                     # encadeia a próxima (já no idioma certo)
     a.label('um_close')
@@ -569,6 +659,7 @@ def emit_text(a):
     a.sta(V['txt_scroll'])
     a.lda('#', 1); a.sta(V['msg_active']); a.sta(V['msg_pending'])
     a.lda('#', 20); a.sta(V['msg_timer'])
+    a.lda('#', MSG_AUTO_FRAMES); a.sta(V['msg_auto'])
     a.a8(); a.lda('#', TM_FIELD); a.sta(V['tm_val']); a.rep(0x20)  # esconde até carregar
     a.rts()
 
@@ -577,6 +668,17 @@ def emit_text(a):
 def emit_player(a):
     a.label('update_player')
     a.lda(V['move_cnt']); a.jeq('up_idle')
+    # velocidade escolhida no menu (na tela final o galo anda sempre no normal)
+    a.lda(V['mode']); a.cmp('#', MODE_END); a.beq('up_move')
+    a.lda(V['speed']); a.asl(); a.tax()
+    a.lda(V['spd_acc']); a.clc(); a.adc('speed_inc', 'x')
+    a.cmp('#', 256); a.bcs('up_go')
+    a.sta(V['spd_acc'])
+    a.rts()
+    a.label('up_go')
+    a.sec(); a.sbc('#', 256); a.sta(V['spd_acc'])
+
+    a.label('up_move')                        # um passo de 2 px
     a.lda(V['move_dir'])
     a.cmp('#', 0); a.bne('up_m1'); a.lda(V['py']); a.clc(); a.adc('#', 2); a.sta(V['py']); a.bra('up_mdone')
     a.label('up_m1')
@@ -767,7 +869,8 @@ def emit_actions(a):
     a.label('act_star')
     # o Pipo cresce: carrega o próximo estágio na outra área de sprites
     a.lda(V['pslot']); a.eor('#', 1); a.tax()
-    a.lda(V['level']); a.inc()
+    a.lda(V['level']); a.asl(); a.tay()
+    a.lda('lvl_stage_next', 'y')
     a.jsr('load_stage')
     a.lda('#', GROW_FRAMES); a.sta(V['grow_t'])
     a.lda('#', 1); a.sta(V['reset_after'])
@@ -839,6 +942,15 @@ def emit_level(a):
     a.label('rl_copy')
     a.lda('(dp),y', V['ptr']); a.sta(MAPBUF, 'y')
     a.iny(); a.iny(); a.cpy('#', 224); a.bne('rl_copy')
+    # fase com sapo: começa arrumada (o sapo vai bagunçar)
+    a.lda(V['level']); a.asl(); a.tax()
+    a.lda('lvl_tidy', 'x'); a.beq('rl_notidy'); a.tax()
+    a.label('rl_tidy')
+    a.lda(0, 'x'); a.cmp('#', 0xFFFF); a.beq('rl_notidy')
+    a.tay(); a.lda(2, 'x')
+    a.a8(); a.sta(MAPBUF, 'y'); a.rep(0x20)
+    a.inx(); a.inx(); a.inx(); a.inx(); a.bra('rl_tidy')
+    a.label('rl_notidy')
     a.stz(V['tmp0'])
     a.label('rl_draw')
     a.ldx(V['tmp0']); a.jsr('draw_cell')
@@ -893,6 +1005,8 @@ def emit_level(a):
     a.inx(); a.inx(); a.cpx('#', 6); a.bne('rl_actor')
     a.a8(); a.lda('#', 1); a.sta(V['map_dirty']); a.lda('#', TM_FIELD); a.sta(V['tm_val'])
     a.rep(0x20)
+    for i in range(4):                        # esconde a cena final
+        a.lda('#', 0xE000); a.sta(OAM + 4 * (CUT_OAM + i))
     # modo: jogo, abertura ou final
     a.lda('#', 0x3FF); a.sta(V['txt_scroll'])
     a.stz(V['scr_t']); a.stz(V['hide_player']); a.stz(V['scene_on'])
@@ -900,6 +1014,16 @@ def emit_level(a):
     a.lda('lvl_mode', 'x'); a.sta(V['mode'])
     a.bne('rl_screen')
     a.lda('#', 3); a.sta(V['logo_req'])      # jogo: apaga o logotipo do BG3
+    a.lda(V['level']); a.asl(); a.tax()
+    a.lda('lvl_intro', 'x'); a.beq('rl_nointro')
+    a.sta(IN_IP)
+    a.lda('lvl_in_x', 'x'); a.sta(IN_X)
+    a.lda('lvl_in_y', 'x'); a.sta(IN_Y)
+    a.stz(IN_HOP); a.stz(IN_REVEAL)
+    a.lda('#', 50); a.sta(IN_PAUSE)
+    a.lda('#', MODE_INTRO); a.sta(V['mode'])
+    sfx(a, 'croak')
+    a.label('rl_nointro')
     a.rts()
     a.label('rl_screen')
     a.cmp('#', MODE_TITLE); a.bne('rl_final')
@@ -907,9 +1031,16 @@ def emit_level(a):
     a.sta(V['logo_req'])                      # logotipo PIPO NO JARDIM
     a.rts()
     a.label('rl_final')
-    a.lda(V['lang']); a.asl(); a.clc(); a.adc('#', 2); a.sta(V['logo_req'])   # FIM! / THE END!
-    a.lda('#', MSG['%d_box' % ENDING]); a.jsr('show_msg')
-    a.lda('#', 0x3FF); a.sta(V['txt_scroll'])
+    # começa a cena do papai e da mamãe; o FIM! aparece no fim dela
+    a.stz(CUT_T); a.stz(CUT_OFS); a.stz(CUT_EV); a.stz(CUT_DONE)
+    # desenhos do papai e da mamãe na área de sprites que o Pipo não está usando
+    a.lda(V['pslot']); a.eor('#', 1); a.sta(V['pu_slot']); a.asl(); a.tax()
+    a.lda('#', 0xFF); a.sta(V['slot_stage'], 'x')
+    a.lda('slot_vram', 'x'); a.sta(V['pu_vaddr'])
+    a.lda('slot_tile', 'x'); a.sta(CUT_PB)
+    a.lda('#', PARENTS_SRC[1]); a.sta(V['pu_src'])
+    a.lda('#', PARENTS_SRC[0]); a.sta(V['pu_bank'])
+    a.lda('#', 4096); a.sta(V['pu_left'])
     a.rts()
 
 
@@ -1123,14 +1254,42 @@ def emit_sprites(a):
     a.ply()
     a.bra('db_show')
     a.label('db_duck')
+    # o patinho olha para o Pipo (os que já estão com a mamãe olham para ela)
+    a.lda('#', 0x22); a.sta(V['tmp1'])         # paleta de sprites 1
+    a.lda(B_ACT, 'x'); a.cmp('#', DUCK_HOME); a.beq('db_side')
+    a.lda(V['px']); a.sec(); a.sbc(B_X, 'x'); a.sta(V['tmp2'])   # dx (Pipo - patinho)
+    a.bpl('db_dxp'); a.eor('#', 0xFFFF); a.inc()
+    a.label('db_dxp')
+    a.sta(V['tmp3'])                           # |dx|
+    a.lda(V['py']); a.sec(); a.sbc(B_Y, 'x'); a.sta(V['nty'])    # dy
+    a.bpl('db_dyp'); a.eor('#', 0xFFFF); a.inc()
+    a.label('db_dyp')
+    a.cmp(V['tmp3']); a.bcc('db_horiz'); a.beq('db_horiz')
+    # mais longe na vertical: de frente (Pipo embaixo) ou de costas (Pipo em cima),
+    # gingando (espelha a cada 8 quadros)
+    a.lda(V['frame_ctr']); a.and_('#', 8); a.beq('db_fb0')
+    a.lda('#', 0x62); a.sta(V['tmp1'])
+    a.label('db_fb0')
+    a.lda(V['nty']); a.bmi('db_back')
+    a.lda('#', A.spr_tile(A.SPR['duck_front'])); a.bra('db_dt')
+    a.label('db_back')
+    a.lda('#', A.spr_tile(A.SPR['duck_back'])); a.bra('db_dt')
+    a.label('db_horiz')                        # de lado: o desenho olha para a esquerda
+    a.lda(V['tmp2']); a.bmi('db_side'); a.beq('db_side')
+    a.lda('#', 0x62); a.sta(V['tmp1'])         # Pipo à direita: espelha
+    a.label('db_side')
     a.lda(V['frame_ctr']); a.and_('#', 8); a.beq('db_d0')
     a.lda('#', A.spr_tile(A.SPR['duck1'])); a.bra('db_dt')
     a.label('db_d0')
     a.lda('#', A.spr_tile(A.SPR['duck0']))
     a.label('db_dt')
     a.sta(V['tmp0'])
-    a.lda('#', 0x22); a.sta(V['tmp1'])         # paleta de sprites 1
     a.label('db_show')
+    a.lda(V['mode']); a.cmp('#', MODE_INTRO); a.bne('db_vis')   # na introdução: só os que o sapo já soltou
+    a.lda('bit_tbl', 'x'); a.and_(IN_REVEAL); a.bne('db_vis')
+    a.a8(); a.bra('db_hide')
+    a.assume(m16=True)
+    a.label('db_vis')
     a.lda(B_ACT, 'x')
     a.a8()
     a.beq('db_hide')
@@ -1151,6 +1310,336 @@ def emit_sprites(a):
     a.rep(0x20)
     a.iny(); a.iny(); a.iny(); a.iny()
     a.inx(); a.inx(); a.cpx('#', 6); a.jne('db_loop')
+    a.rts()
+
+
+HUD_OAM = 20          # OAM 20-21: número da fase (1 ou 2 algarismos)
+HUD_RIGHT_X = 256 - 8 - 14   # x do último algarismo (canto superior direito)
+HUD_DIGIT_STEP = 9
+
+
+def hud_digits():
+    """Para cada fase: 2 palavras (posição, tile|atributos) por algarismo; y=$F0 = vazio."""
+    out = []
+    for lv in range(len(LEVELS)):
+        txt = str(lv + 1)
+        cells = []
+        for i, ch in enumerate(txt):
+            x = HUD_RIGHT_X - HUD_DIGIT_STEP * (len(txt) - 1 - i)
+            cells += [x | (2 << 8), A.hud_tile(ch) | (0x31 << 8)]   # prioridade 3, tiles 256+
+        cells += [0xF000, 0] * (2 - len(txt))
+        out += cells
+    return out
+
+
+def emit_hud(a):
+    # número da fase no canto superior direito (só durante as fases)
+    a.label('draw_hud')
+    a.lda(V['mode']); a.beq('hud_on')
+    a.cmp('#', MODE_INTRO); a.beq('hud_on')
+    for i in range(2):
+        a.lda('#', 0xF000); a.sta(OAM + 4 * (HUD_OAM + i))
+    a.rts()
+    a.label('hud_on')
+    a.lda(V['level']); a.asl(); a.asl(); a.asl(); a.tax()     # 8 bytes por fase
+    for i in range(4):
+        a.lda(('+', 'hud_digits', 2 * i), 'x'); a.sta(OAM + 4 * HUD_OAM + 2 * i)
+    a.rts()
+
+
+INTRO_HOP = 16            # quadros de cada pulo do sapo
+INTRO_ARC = [round(4 * 12 * t * (INTRO_HOP - t) / INTRO_HOP ** 2) for t in range(INTRO_HOP)]
+# como cada coisa estava antes do sapo bagunçar (letra do mapa -> metatile)
+CURURU_TIDY = {
+    'r': 'grass', 'b': 'grass', 'y': 'grass', '1': 'basketf_r', '2': 'basketf_b', '3': 'basketf_y',
+    'c': 'grass', 'q': 'grass', 't': 'grass', '4': 'holef_c', '5': 'holef_s', '6': 'holef_t',
+    'h': 'rabbit', 'j': 'bird', 'k': 'hedgehog', 'x': 'bridge_r', 'v': 'bridge_b', 'z': 'bridge_y',
+    's': 'bloom_1', 'i': 'bloom_2', 'l': 'bloom_3', 'C': 'grass', 'K': 'grass', 'o': 'grass',
+    'A': 'bubble_heart', 'E': 'bubble_heart', 'J': 'bubble_heart', 'L': 'lantern_on', 'N': 'nest_3',
+}
+CURURU_SFX = {'X': 'bell1', 'Y': 'bell2', 'Z': 'bell3'}
+
+
+def intro_data(L):
+    """Roteiro do sapo numa fase: (lista de arrumação, roteiro em palavras, início x/y)
+    ou None. Roteiro: por pulo X0 Y0 VX VY (12.4 px) SFX N [ÍNDICE MT]*N REVELA PAUSA;
+    fim = $8000."""
+    spots = getattr(L, 'CURURU', None)
+    if not spots:
+        return None
+    _, spawns = level_bytes(L)
+    pos = {}
+    for y, row in enumerate(L.LEVEL):
+        for x, c in enumerate(row):
+            pos.setdefault(c, []).append((x, y))
+    seen = {}
+    tidy, events = [], []
+    for k, ch in enumerate(spots):
+        n = seen.get(ch, 0); seen[ch] = n + 1
+        x, y = pos[ch][n]
+        idx = y * 16 + x
+        changes, reveal = [], 0
+        actor = [i for i, sp in enumerate(spawns) if sp[:2] == (x, y)]
+        if actor:
+            reveal = 1 << actor[0]
+            changes.append((idx, MT['grass']))           # só para as folhinhas aparecerem
+        else:
+            changes.append((idx, MT[CHAR_MT[ch]]))
+            if CURURU_TIDY.get(ch):
+                tidy.append((idx, MT[CURURU_TIDY[ch]]))
+            if ch in 'AEJ':                                # bichinho embaixo do balão
+                below = L.LEVEL[y + 1][x]
+                tidy.append((idx + 16, MT[MT_NEXT[CHAR_MT[below]]]))
+                changes.append((idx + 16, MT[CHAR_MT[below]]))
+        last = k == len(spots) - 1
+        sfx_name = 'laugh' if last else CURURU_SFX.get(ch, 'mischief')
+        events.append(((x * 16, y * 16), sfx_name, changes, reveal, 45 if last else 22))
+    home = pos.get('F', [None])[0]
+    if home:                                               # mora na lagoa
+        hidx = home[1] * 16 + home[0]
+        tidy.append((hidx, MT['water']))
+        start = end = (home[0] * 16, home[1] * 16)
+        events.append((end, 'croak', [(hidx, MT['frog'])], 0, 20))
+    else:                                                  # vem de fora do jardim, por cima
+        start = (events[0][0][0], -40)
+        end = (events[-1][0][0], -40)
+        events.append((end, None, [], 0, 1))
+    words = []
+    cur = start
+    for target, sfx_name, changes, reveal, pause in events:
+        dx, dy = target[0] - cur[0], target[1] - cur[1]
+        nh = max(1, -(-int((dx * dx + dy * dy) ** 0.5) // 48))
+        for h in range(nh):
+            x0, y0 = cur[0] + dx * h / nh, cur[1] + dy * h / nh
+            words += [round(x0 * 16), round(y0 * 16),
+                      round(dx / nh * 16 / INTRO_HOP), round(dy / nh * 16 / INTRO_HOP)]
+            if h < nh - 1:
+                words += [0, 0, 0, 3]                      # pulinho no meio do caminho
+            else:
+                words += [sound.SFX[sfx_name] if sfx_name else 0, len(changes)]
+                for i, m in changes:
+                    words += [i, m]
+                words += [reveal, pause]
+        cur = target
+    words.append(0x8000)
+    return tidy, [w & 0xFFFF for w in words], (round(start[0] * 16) & 0xFFFF, round(start[1] * 16) & 0xFFFF)
+
+
+def emit_intro(a):
+    # update_intro: o sapo pula de lugar em lugar bagunçando a fase
+    a.label('update_intro')
+    a.lda(IN_HOP); a.bne('ui_hopping')
+    a.dec(IN_PAUSE); a.beq('ui_next')
+    a.rts()
+    a.label('ui_next')
+    a.ldx(IN_IP)
+    a.lda(0, 'x'); a.cmp('#', 0x8000); a.beq('ui_end')
+    a.sta(IN_X)
+    a.lda(2, 'x'); a.sta(IN_Y)
+    a.lda(4, 'x'); a.sta(IN_VX)
+    a.lda(6, 'x'); a.sta(IN_VY)
+    a.txa(); a.clc(); a.adc('#', 8); a.sta(IN_IP)
+    a.stz(IN_T)
+    a.lda('#', 1); a.sta(IN_HOP)
+    sfx(a, 'hop')
+    a.rts()
+    a.label('ui_end')                          # acabou: mostra o que o sapo fez e começa a fase
+    a.stz(V['mode'])
+    a.lda(V['level']); a.asl(); a.tax()
+    a.lda('lvl_intro_msg', 'x')
+    a.jmp('show_msg')
+    a.label('ui_hopping')
+    a.lda(IN_X); a.clc(); a.adc(IN_VX); a.sta(IN_X)
+    a.lda(IN_Y); a.clc(); a.adc(IN_VY); a.sta(IN_Y)
+    a.inc(IN_T)
+    a.lda(IN_T); a.cmp('#', INTRO_HOP); a.beq('ui_land')
+    a.rts()
+    a.label('ui_land')
+    a.stz(IN_HOP)
+    a.ldx(IN_IP)
+    a.lda(0, 'x'); a.beq('ui_nosfx')
+    a.sta(V['snd_req'])
+    a.label('ui_nosfx')
+    a.lda(2, 'x'); a.sta(IN_CNT)
+    a.inx(); a.inx(); a.inx(); a.inx()
+    a.label('ui_chg')
+    a.lda(IN_CNT); a.beq('ui_chg_done')
+    a.lda(0, 'x'); a.sta(V['target'])
+    a.lda(2, 'x')
+    a.phx(); a.jsr('set_tile'); a.jsr('fx_at_target'); a.plx()
+    a.inx(); a.inx(); a.inx(); a.inx()
+    a.dec(IN_CNT); a.bra('ui_chg')
+    a.label('ui_chg_done')
+    a.lda(0, 'x'); a.ora(IN_REVEAL); a.sta(IN_REVEAL)
+    a.lda(2, 'x'); a.sta(IN_PAUSE)
+    a.inx(); a.inx(); a.inx(); a.inx()
+    a.stx(IN_IP)
+    a.rts()
+
+    # draw_frog: OAM 12 (só na introdução)
+    a.label('draw_frog')
+    a.lda(V['mode']); a.cmp('#', MODE_INTRO); a.beq('df_on')
+    a.lda('#', 0xF000); a.sta(OAM + 4 * FROG_OAM)
+    a.rts()
+    a.label('df_on')
+    a.lda(IN_X); a.lsr(); a.lsr(); a.lsr(); a.lsr(); a.sta(V['tmp0'])
+    a.lda(IN_Y)
+    for _ in range(4):
+        a.cmp('#', 0x8000); a.ror()            # desloca mantendo o sinal
+    a.sta(V['tmp1'])
+    a.lda(IN_HOP); a.beq('df_sit')
+    a.lda(IN_T); a.asl(); a.tax()
+    a.lda(V['tmp1']); a.sec(); a.sbc('intro_arc', 'x'); a.sta(V['tmp1'])
+    a.lda('#', A.spr_tile(A.SPR['frog_jump'])); a.bra('df_tile')
+    a.label('df_sit')
+    a.lda(V['frame_ctr']); a.and_('#', 16); a.beq('df_s0')
+    a.lda('#', A.spr_tile(A.SPR['frog_laugh'])); a.bra('df_tile')
+    a.label('df_s0')
+    a.lda('#', A.spr_tile(A.SPR['frog_sit']))
+    a.label('df_tile')
+    a.ora('#', 0x22 << 8)                      # prioridade 2, paleta de sprites 1
+    a.sta(OAM + 4 * FROG_OAM + 2)
+    a.a8()
+    a.lda(V['tmp0']); a.sta(OAM + 4 * FROG_OAM)
+    a.lda(V['tmp1']); a.sta(OAM + 4 * FROG_OAM + 1)
+    a.rep(0x20)
+    a.rts()
+
+
+CUT_N, CUT_LOOP = 792, 32       # quadros da cena; os últimos 32 se repetem
+CUT_EVENTS = {'sfx': 1, 'msg': 2, 'happy': 3, 'done': 4}
+
+
+def ending_cutscene():
+    """Cena final quadro a quadro: para cada quadro, 4 sprites (coberta, papai,
+    mamãe, Cururu) já no formato da OAM (x, y, tile, atributos). Os tiles do papai e
+    da mamãe são relativos à área de sprites deles (somada no jogo).
+    Devolve (bytes, eventos [(quadro, tipo, valor)])."""
+    HIDE = (0, 0xE0, 0, 0)
+    fr = [[HIDE] * 4 for _ in range(CUT_N)]
+
+    def spr(x, y, tile, attr):
+        return (int(x) & 0xFF, int(y) & 0xFF, tile & 0xFF, attr | (tile >> 8))
+
+    def parent(who, k, x, y, flip=False):
+        return spr(x, y, growth.parent_tile(who, k), 0x20 | (0x40 if flip else 0))
+
+    PY = 10 * 16 - 16                  # papai e mamãe com os pés na linha 10
+    POPI_X, PIPA_X = 7 * 16, 10 * 16
+    BL_X, BL_Y = 144, 150              # coberta entre os dois
+    FROG_Y = 11 * 16
+    for f in range(CUT_N):
+        walk = 2 + (f // 8) % 2        # quadros de lado (desenho olha para a direita)
+        idle = (f // 16) % 2
+        # ---- papai
+        if f >= 40:
+            x = max(POPI_X, 255 - (f - 40))
+            if x > POPI_X:
+                p = parent(0, walk, x, PY, flip=True)
+            elif 290 <= f < 420:       # costurando: virado para a mamãe
+                p = parent(0, 2 + (f // 12) % 2, x, PY)
+            else:
+                hop = 3 if 584 <= f < 640 and (f // 6) % 2 else 0
+                p = parent(0, idle, x, PY - hop)
+            fr[f][1] = p
+        # ---- mamãe
+        if f >= 88:
+            x = max(PIPA_X, 255 - (f - 88))
+            if x > PIPA_X:
+                p = parent(1, walk, x, PY, flip=True)
+            elif 290 <= f < 420:
+                p = parent(1, 2 + (f // 12) % 2, x, PY, flip=True)
+            else:
+                hop = 3 if 590 <= f < 646 and (f // 6) % 2 else 0
+                p = parent(1, idle, x, PY - hop)
+            fr[f][2] = p
+        # ---- coberta
+        if 320 <= f < 380:
+            fr[f][0] = spr(BL_X, BL_Y, A.hud_tile('blanket_half'), 0x22)
+        elif 380 <= f < 560:
+            fr[f][0] = spr(BL_X, BL_Y, A.hud_tile('blanket'), 0x22)
+        elif 560 <= f < 584:
+            fr[f][0] = spr(BL_X, BL_Y + (FROG_Y - BL_Y) * (f - 560) / 24, A.hud_tile('blanket'), 0x22)
+        # ---- Cururu: sai da lagoa, pula até perto deles e treme de frio
+        if 420 <= f < 584:
+            pts = [40, 75, 110, 144]
+            x, y, t = pts[0], FROG_Y, A.SPR['frog_sit']
+            for i in range(3):
+                h0 = 440 + i * 20
+                if f >= h0:
+                    x = pts[i + 1]
+                if h0 <= f < h0 + INTRO_HOP:
+                    k = f - h0
+                    x = pts[i] + (pts[i + 1] - pts[i]) * k / INTRO_HOP
+                    y = FROG_Y - INTRO_ARC[k]
+                    t = A.SPR['frog_jump']
+            if f >= 500:
+                x += (f // 3) % 2      # tremendo de frio
+            fr[f][3] = spr(x, y, A.spr_tile(t), 0x22)
+        elif f >= 584:                 # enroladinho na coberta
+            fr[f][3] = spr(144, FROG_Y, A.hud_tile('frog_wrap%d' % idle), 0x22)
+    events = [
+        (191, 'sfx', 'yay'), (191, 'happy', 60),
+        (196, 'msg', 'parents'),
+        (290, 'msg', 'blanket'),
+        (320, 'sfx', 'pick'), (350, 'sfx', 'pick'), (380, 'sfx', 'yay'),
+        (420, 'sfx', 'croak'), (440, 'sfx', 'hop'), (460, 'sfx', 'hop'), (480, 'sfx', 'hop'),
+        (584, 'sfx', 'star'), (584, 'happy', 90),
+        (600, 'msg', 'warm'),
+        (CUT_N - CUT_LOOP, 'done', 0),
+    ]
+    out = []
+    for f, kind, arg in events:
+        if kind == 'sfx':
+            arg = sound.SFX[arg]
+        elif kind == 'msg':
+            arg = MSG['%d_%s' % (ENDING, arg)]
+        out.append((f, CUT_EVENTS[kind], arg))
+    blob = bytes(b for frame in fr for s4 in frame for b in s4)
+    return blob, out
+
+
+def emit_cutscene(a, cut_addr):
+    # cut_step: copia o quadro atual da cena para a OAM e dispara os eventos
+    a.label('cut_step')
+    a.ldx(CUT_OFS)
+    for i in range(4):
+        o = OAM + 4 * (CUT_OAM + i)
+        a.lda('long', cut_addr + 4 * i, 'x'); a.sta(o)
+        a.lda('long', cut_addr + 4 * i + 2, 'x')
+        if i in (1, 2):                       # papai e mamãe: soma o início da área deles
+            a.clc(); a.adc(CUT_PB)
+        a.sta(o + 2)
+    a.ldy(CUT_EV)
+    a.label('ce_loop')
+    a.lda('cut_ev', 'y'); a.cmp(CUT_T); a.bne('ce_done')
+    a.lda(('+', 'cut_ev', 2), 'y')
+    a.cmp('#', CUT_EVENTS['sfx']); a.bne('ce_1')
+    a.lda(('+', 'cut_ev', 4), 'y'); a.sta(V['snd_req']); a.bra('ce_next')
+    a.label('ce_1')
+    a.cmp('#', CUT_EVENTS['msg']); a.bne('ce_2')
+    a.phy(); a.lda(('+', 'cut_ev', 4), 'y'); a.jsr('show_msg'); a.ply(); a.bra('ce_next')
+    a.label('ce_2')
+    a.cmp('#', CUT_EVENTS['happy']); a.bne('ce_3')
+    a.lda(('+', 'cut_ev', 4), 'y'); a.sta(V['happy']); a.bra('ce_next')
+    a.label('ce_3')                           # fim da cena: FIM!, amigos felizes, o galo passeia
+    a.phy()
+    a.lda('#', 1); a.sta(CUT_DONE)
+    a.stz(V['scr_t'])
+    a.lda(V['lang']); a.asl(); a.clc(); a.adc('#', 2); a.sta(V['logo_req'])   # FIM! / THE END!
+    a.lda('#', MSG['%d_box' % ENDING]); a.jsr('show_msg')
+    a.ply()
+    a.label('ce_next')
+    a.iny(); a.iny(); a.iny(); a.iny(); a.iny(); a.iny()
+    a.bra('ce_loop')
+    a.label('ce_done')
+    a.sty(CUT_EV)
+    a.inc(CUT_T)
+    a.lda(CUT_OFS); a.clc(); a.adc('#', 16); a.sta(CUT_OFS)
+    a.lda(CUT_T); a.cmp('#', CUT_N); a.bne('ce_ret')
+    a.lda('#', CUT_N - CUT_LOOP); a.sta(CUT_T)
+    a.lda('#', (CUT_N - CUT_LOOP) * 16); a.sta(CUT_OFS)
+    a.label('ce_ret')
     a.rts()
 
 
@@ -1285,6 +1774,34 @@ def emit_data(a, mt_table, msgs, msg_src, stage_src, logo_maps):
     a.word(0, *[A.spr_tile(A.SPR[n]) for n, _ in ITEMS])
     a.label('item_attr')
     a.word(0, *[0x22 if n in A.SPR_PAL2_CELLS else 0x20 for n, _ in ITEMS])
+    intros = [intro_data(L) if L in LEVELS else None for L in ALL]
+    for i, d in enumerate(intros):
+        if d:
+            a.label('intro_tidy_%d' % i)
+            for idx, m in d[0]:
+                a.word(idx, m)
+            a.word(0xFFFF)
+            a.label('intro_script_%d' % i)
+            a.word(*d[1])
+    a.label('lvl_tidy'); a.word(*[('intro_tidy_%d' % i) if d else 0 for i, d in enumerate(intros)])
+    a.label('lvl_intro'); a.word(*[('intro_script_%d' % i) if d else 0 for i, d in enumerate(intros)])
+    a.label('lvl_in_x'); a.word(*[d[2][0] if d else 0 for d in intros])
+    a.label('lvl_in_y'); a.word(*[d[2][1] if d else 0 for d in intros])
+    a.label('lvl_intro_msg')
+    a.word(*[MSG['%d_intro' % i] if d else 0 for i, d in enumerate(intros)])
+    a.label('intro_arc'); a.word(*INTRO_ARC)
+    a.label('hud_digits'); a.word(*hud_digits())
+    a.label('cut_ev')
+    for f, kind, arg in CUT_EVENT_LIST:
+        a.word(f, kind, arg)
+    a.word(0xFFFF, 0, 0)
+    a.label('bit_tbl'); a.word(1, 2, 4)
+    a.label('speed_inc')
+    a.word(*SPEED_INC)
+    a.label('menu_msg')                       # mensagem (em português) de cada tela do menu
+    a.word(*[MSG['%d_%s' % (TITLE, pg)] for pg in title.MENU])
+    a.label('menu_hpos')
+    a.word(*menu_heart_pos())
     a.label('player_frames')
     # ordem: (facing*2 + quadro); facing 0=baixo 1=cima 2=esq 3=dir
     for k, flip in [(0, 0), (1, 0), (2, 0), (3, 0), (4, 0x40), (5, 0x40), (4, 0), (5, 0)]:
@@ -1319,7 +1836,8 @@ def emit_data(a, mt_table, msgs, msg_src, stage_src, logo_maps):
     a.label('lvl_star_msg'); a.word(*[MSG['%d_star1' % i] if i < nl else 0 for i in range(n)])
     a.label('lvl_next'); a.word(*[i + 1 if i < nl - 1 else (ENDING if i == nl - 1 else 0) for i in range(n)])
     a.label('lvl_mode'); a.word(*([MODE_PLAY] * nl + [MODE_TITLE, MODE_END]))
-    a.label('lvl_stage'); a.word(*(list(range(nl)) + [0, growth.STAGES - 1]))
+    a.label('lvl_stage'); a.word(*([stage_for(i) for i in range(nl)] + [0, growth.STAGES - 1]))
+    a.label('lvl_stage_next'); a.word(*[stage_for(i + 1) for i in range(nl)])
     for i, m in enumerate(logo_maps):
         a.label('logo_map_%d' % i); a.word(*m)
     a.label('logo_src'); a.word(0, 'logo_map_0', 'logo_map_1', 'zero_word', 'logo_map_2')
@@ -1452,15 +1970,27 @@ CHAR_MT = {
 }
 
 
-def menu_heart_cols():
-    """Coluna (dentro da área de texto) do coração ao lado de cada idioma."""
+def stage_for(i):
+    """Tamanho do Pipo no começo da fase i (0 = pintinho; depois da última = galo)."""
+    return round(i * (growth.STAGES - 1) / len(LEVELS))
+
+
+def menu_heart_pos():
+    """Posição (byte no TXTBUF) do coração ao lado de cada opção do menu, na
+    ordem [idioma][página][opção]; $FFFF onde a opção não existe."""
     font = A._font()
-    cols = []
-    for line in title.MESSAGES[0][1]:
-        w = font.getlength(line)
-        x = 120 - w / 2 - 12            # 120 = centro da área de texto (240 px)
-        cols.append(max(0, int(x // 8)))
-    return cols
+    out = []
+    for lang in (LANG_PT, LANG_EN):
+        for page in title.MENU:
+            lines = MESSAGES[MSG['%d_%s' % (TITLE, page)] + (NPT if lang else 0)][1]
+            for i in range(3):
+                if i >= len(lines):
+                    out.append(0xFFFF); continue
+                x = 120 - font.getlength(lines[i]) / 2 - 12   # 120 = centro da área de texto
+                col = max(0, int(x // 8))
+                row = 1 + (3 - len(lines)) + 2 * i            # linha da caixa (igual a render_message)
+                out.append((row * 32 + 1 + col) * 2)
+    return out
 
 
 def stage_tiles(stage):

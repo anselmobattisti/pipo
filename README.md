@@ -5,6 +5,14 @@ jardim resolvendo quebra-cabeças simples, sem morte, tempo ou pontuação: erra
 simplesmente não faz nada, e acertar faz o Pipo pular com coração e brilhos. Cada fase
 termina numa estrela, e a cada estrela o Pipo cresce um pouco, até virar galo.
 
+**O vilão: o sapo Cururu.** Um sapo-cururu marrom e travesso, que mora na lagoa, é quem
+faz toda a bagunça. No começo de cada fase o jardim aparece arrumado e o Cururu sai
+pulando: tira as bolas das cestas, assusta os amigos, quebra as pontes, amassa as
+flores, apaga as lanternas... A cada travessura voam folhinhas. No fim ele dá risada,
+volta para a lagoa (ou pula para fora do jardim) e aparece uma mensagem contando o
+que ele fez, por exemplo "OH, NÃO! O SAPO CURURU ESPALHOU AS BOLAS!". Depois o Pipo
+arruma tudo.
+
 <p align="center">
   <img src="docs/img/abertura.png" width="384" alt="Abertura: o Pipo acaba de nascer e aparece o título PIPO NO JARDIM">
 </p>
@@ -16,20 +24,38 @@ termina numa estrela, e a cada estrela o Pipo cresce um pouco, até virar galo.
 - **Fase 5 — Botões e pontes:** pisar num botão colorido faz aparecer a ponte da mesma cor.
 - **Fase 6 — Filhotes perdidos:** os patinhos seguem o Pipo em fila até a mamãe pata.
 - **Fase 7 — Regar as flores:** pegar o regador e regar 3 brotinhos, que viram flores.
+  O cenário dessa fase não tem outras plantas (flores, arbustos), só os brotinhos, para
+  não confundir a criança.
 - **Fase 8 — Lanche dos bichinhos:** levar a comida que cada bicho mostra no balão.
 - **Fase 9 — Noite dos vaga-lumes:** fase escura; levar os vaga-lumes até as lanternas.
-- **Fase 10 — Jardim musical:** tocar os 3 sinos (as flores musicais tocam notas só por diversão).
-- **Fase 11 — Os ovos da galinha:** achar os ovos escondidos no feno e levar ao ninho.
+- **Fase 10 — Os ovos da galinha:** achar os ovos escondidos no feno e levar ao ninho.
+
+(A fase "Jardim musical", com os sinos, foi tirada do jogo; o arquivo ficou guardado em
+`extra_fase_musica.py`.)
 
 **Abertura:** um ovo no ninho balança, racha e o Pipo nasce; aparece o título
-PIPO NO JARDIM e a escolha de idioma (**português** ou **inglês**): o direcional
-troca e qualquer outro botão começa o jogo. Apertar durante o ovo pula a animação.
+PIPO NO JARDIM e um menu de três telas, uma depois da outra. Em cada tela o direcional
+troca a opção (o coraçãozinho mostra a escolhida) e qualquer outro botão confirma:
+1. **Idioma:** português ou inglês.
+2. **Som:** com som ou sem som (vale na hora; desliga música e efeitos).
+3. **Velocidade do Pipo:** devagar, normal ou rápido. Ele leva 32, 20 ou 12 quadros
+   (½ s, ⅓ s, ⅕ s) para andar um bloco. Os valores ficam em `SPEED_FRAMES` no `build.py`.
 
-**Tela final:** depois da fase 11, todos os amigos aparecem felizes, o galo passeia e
-canta, com um grande FIM!. Um botão volta para a abertura.
+O jogo lembra as escolhas enquanto estiver ligado, então para começar basta apertar
+um botão três vezes. Apertar durante o ovo pula a animação.
+
+**Número da fase:** durante a fase, o número dela (1 a 10) fica no canto superior direito,
+grande, branco e com contorno escuro, para aparecer bem em qualquer cenário.
+
+**Tela final:** depois da última fase chegam o papai do Pipo, **Seu Popi** (galo de óculos
+e gravata-borboleta), e a mamãe, **Senhora Pipa** (galinha com laço cor-de-rosa). Eles
+costuram uma coberta de retalhos para o sapo Cururu, que sai da lagoa tremendo de frio.
+Enroladinho e quentinho, ele não faz mais bagunça. Depois todos os amigos aparecem
+felizes, o galo passeia e canta, com um grande FIM!. A caixa de texto alterna entre "TODOS OS AMIGOS ESTÃO FELIZES!"
+e os autores: **feito por Papai Anselmo e Filho Oliver**. Um botão volta para a abertura.
 
 **O Pipo cresce:** a cada estrela ele pisca e fica maior (12 tamanhos, de pintinho a
-frango). Na última fase vira um galo e canta "có-có-ri-có". Depois vem a tela final.
+frango, distribuídos pelas fases). Na última fase vira um galo e canta "có-có-ri-có". Depois vem a tela final.
 
 ## Imagens
 
@@ -37,14 +63,18 @@ frango). Na última fase vira um galo e canta "có-có-ri-có". Depois vem a tel
 |:---:|:---:|
 | ![Fase 1](docs/img/fase1.png) | ![Fase 2](docs/img/fase2.png) |
 | **Fase 1:** cada bola na cesta da sua cor | **Fase 2:** as bolas puladoras |
-| ![Escolha de idioma](docs/img/idioma.png) | ![Fase 5](docs/img/fase5.png) |
-| **Abertura:** escolha de idioma | **Fase 5:** os botões fazem aparecer as pontes |
-| ![Fase 4](docs/img/fase4.png) | ![Fase 6](docs/img/fase6.png) |
-| **Fase 4:** o coelho escondido no arbusto | **Fase 6:** a fila de patinhos |
+| ![O sapo Cururu](docs/img/sapo.png) | ![O que o sapo fez](docs/img/sapo_fez.png) |
+| **O sapo Cururu** esvaziando as cestas | **Depois da bagunça:** a mensagem do Cururu |
+| ![Fase 4](docs/img/fase4.png) | ![Fase 5](docs/img/fase5.png) |
+| **Fase 4:** o coelho escondido no arbusto | **Fase 5:** os botões fazem aparecer as pontes |
+| ![Fase 6](docs/img/fase6.png) | ![Fase 7](docs/img/fase7.png) |
+| **Fase 6:** a fila de patinhos (cada um olha para o Pipo) | **Fase 7:** só os brotinhos no cenário |
 | ![Fase 8](docs/img/fase8.png) | ![Fase 9](docs/img/fase9.png) |
 | **Fase 8:** os bichinhos de barriga cheia | **Fase 9:** a noite dos vaga-lumes |
-| ![Fase 11](docs/img/fase11.png) | |
-| **Fase 11:** o Pipo vira galo | |
+| ![Fase 10](docs/img/fase10.png) | ![Escolha de idioma](docs/img/idioma.png) |
+| **Fase 10:** os ovos no ninho | **Abertura:** escolha de idioma |
+| ![Seu Popi e Senhora Pipa](docs/img/final_pais.png) | ![O Cururu quentinho](docs/img/final_coberta.png) |
+| **Final:** chegam Seu Popi e Senhora Pipa | **Final:** o Cururu enroladinho na coberta |
 
 **O Pipo crescendo, fase a fase:**
 
@@ -58,20 +88,23 @@ frango). Na última fase vira um galo e canta "có-có-ri-có". Depois vem a tel
 
 ## Controles
 - **Direcional**: anda. Tudo acontece encostando ou pisando nas coisas.
-- **Qualquer botão** (A, B, X, Y, Start…): passa o texto da estrela.
+- **Qualquer botão** (A, B, X, Y, Start…): passa o texto mais rápido. Os diálogos também
+  passam sozinhos depois de 5 segundos (`MSG_AUTO_FRAMES` no `build.py`), então a criança
+  não fica presa numa mensagem.
+- **No menu da abertura:** direcional troca a opção, qualquer outro botão confirma.
 
 ## Gerar a ROM
     python3 build.py            # cria pipo.sfc (só precisa de Python 3 + Pillow)
-    python3 tools/test_play.py  # joga as 11 fases sozinho (~1 min) e salva capturas em build/shots/
+    python3 tools/test_play.py  # joga as 10 fases e o final sozinho (~3 min) e salva capturas em build/shots/
 
 ## Onde mexer
 | Arquivo | O que tem |
 |---|---|
-| `title.py`, `ending.py` | mapas e textos da abertura e da tela final |
-| `level1.py` … `level11.py` | mapa de cada fase (as letras estão explicadas no topo de cada arquivo), início do Pipo e textos da estrela em português (`MESSAGES`) e inglês (`MESSAGES_EN`) |
+| `title.py`, `ending.py` | mapas e textos da abertura (incluindo as telas do menu, `MENU`) e da tela final (a cena do papai e da mamãe fica em `ending_cutscene`, no `build.py`) |
+| `level1.py` … `level10.py` | mapa de cada fase (as letras estão explicadas no topo de cada arquivo), início do Pipo, o caminho do sapo (`CURURU`: as letras do mapa que ele visita, em ordem) e os textos em português (`MESSAGES`, incluindo `intro`, a mensagem do sapo) e inglês (`MESSAGES_EN`) |
 | `tools/growth.py` | desenho dos 12 estágios do Pipo (pintinho → galo) |
 | `tools/assets.py` | desenhos (blocos, Pipo, bolas), paletas e o desenho das mensagens (fonte proporcional, tamanho em `TEXT_SIZE`) |
-| `build.py` | código do jogo em assembly 65816 (DSL em Python), ordem das fases (`LEVELS`) e montagem da ROM |
+| `build.py` | código do jogo em assembly 65816 (DSL em Python), ordem das fases (`LEVELS`), como cada coisa estava antes do sapo bagunçar (`CURURU_TIDY`) e montagem da ROM |
 | `tools/sound.py` | som: música (`MELODY`, `BASS`), efeitos (`EFFECTS`), instrumento e o driver do SPC700 |
 | `tools/spc700.py` | montador SPC700 mínimo, codificador BRR e emulador do SPC usado nos testes |
 | `tools/asm65816.py` | montador 65816 mínimo |

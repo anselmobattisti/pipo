@@ -12,7 +12,10 @@ DIR_ADDR = 0x0800     # diretório de amostras (precisa começar numa página)
 # ids dos efeitos (usados pelo build.py)
 SFX = {'pick': 1, 'yay': 2, 'gate': 3, 'star': 4, 'piu': 5, 'leaves': 6,
        'bell1': 7, 'bell2': 8, 'bell3': 9, 'note1': 10, 'note2': 11, 'note3': 12,
-       'grow': 13, 'crow': 14, 'water': 15}
+       'grow': 13, 'crow': 14, 'water': 15,
+       'croak': 16, 'hop': 17, 'mischief': 18, 'laugh': 19}
+# comandos especiais (mesmo canal dos efeitos)
+CMD_MUTE, CMD_UNMUTE = 0x40, 0x41   # desliga / liga o volume geral (o 2º toca 'pick')
 
 TICK_HZ = 100         # timer 0: 8000 Hz / 80
 Q = 54                # semínima em ticks (~110 bpm)
@@ -75,6 +78,11 @@ EFFECTS = {
     'grow': seq(('C5', 4), ('D5', 4), ('E5', 4), ('F5', 4), ('G5', 4), ('A5', 4), ('B5', 4),
                 ('C6', 4), ('D6', 4), ('E6', 4), ('G6', 25)),
     'crow': seq(('G5', 12), ('G5', 12), ('C6', 14), ('E6', 45), ('C6', 30)),
+    # sapo Cururu
+    'croak': seq(('A3', 9), (None, 4), ('E3', 9), (None, 4), ('A3', 16)),
+    'hop': seq(('C5', 3), ('G5', 5)),
+    'mischief': seq(('A5', 4), ('E5', 4), ('C5', 4), ('A4', 4), ('E4', 10)),
+    'laugh': seq(('E5', 6), (None, 4), ('E5', 6), (None, 4), ('G5', 6), (None, 4), ('E5', 14)),
     'water': seq(('E6', 3), ('C6', 3), ('A5', 3), ('F5', 3), ('D5', 3), ('C5', 10)),
 }
 
@@ -142,8 +150,20 @@ def build_driver():
     a.mov_a_dp(0xF5); a.call('start_sfx')
     a.bra('main')
 
-    # start_sfx: A = número do efeito (1..N)
+    # start_sfx: A = número do efeito (1..N) ou comando de volume
     a.label('start_sfx')
+    a.cmp_a_imm(CMD_MUTE); a.beq('cmd_mute')
+    a.cmp_a_imm(CMD_UNMUTE); a.bne('ss_play')
+    a.mov_a_imm(0x7F); a.call('set_mvol')
+    a.mov_a_imm(SFX['pick'])
+    a.bra('ss_play')
+    a.label('cmd_mute')
+    a.mov_a_imm(0)
+    a.label('set_mvol')                         # volume geral (esq. e dir.) = A
+    a.mov_dp_imm(0xF2, 0x0C); a.mov_dp_a(0xF3)
+    a.mov_dp_imm(0xF2, 0x1C); a.mov_dp_a(0xF3)
+    a.ret()
+    a.label('ss_play')
     a.asl_a(); a.mov_y_a()
     a.mov_a_absy(('-', 'sfx_ptrs', 2)); a.mov_dp_a(T + 16)
     a.mov_a_absy(('-', 'sfx_ptrs', 1)); a.mov_dp_a(T + 17)

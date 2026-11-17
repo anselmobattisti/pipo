@@ -255,16 +255,16 @@ def mt_sign():
     return im
 
 
-def mt_frog():  # sobre a água
+def mt_frog():  # o sapo Cururu (marrom) na vitória-régia, sobre a água
     im = new16(11); d = ImageDraw.Draw(im)
     d.ellipse((0, 9, 15, 15), fill=5)       # vitória-régia
-    d.ellipse((3, 5, 12, 13), fill=6)
-    d.ellipse((4, 6, 11, 12), fill=1)
-    for ex in (3, 9):
-        d.ellipse((ex, 2, ex + 4, 6), fill=6)
-        d.ellipse((ex + 1, 3, ex + 3, 5), fill=8)
-        d.point((ex + 2, 4), 13)
-    d.line((6, 10, 9, 10), fill=6)
+    d.ellipse((2, 4, 13, 13), fill=13); d.ellipse((3, 5, 12, 12), fill=3)
+    d.ellipse((5, 9, 10, 12), fill=9)       # barriga
+    for ex in (2, 8):
+        d.ellipse((ex, 1, ex + 5, 6), fill=13)
+        d.ellipse((ex + 1, 2, ex + 4, 5), fill=8)
+        d.rectangle((ex + 2, 3, ex + 3, 4), fill=13)
+    d.line([(4, 7), (5, 8), (10, 8), (11, 7)], fill=13)   # sorrisão
     return im
 
 
@@ -763,6 +763,21 @@ def spr_duckling(frame):  # paleta de sprites 1
     return im
 
 
+def spr_duckling_fb(view):  # paleta de sprites 1 — de frente ou de costas
+    im = Image.new('P', (16, 16), 0); d = ImageDraw.Draw(im)
+    d.line((5, 14, 5, 15), fill=6); d.line((10, 13, 10, 14), fill=6)   # pezinhos (um à frente: ginga)
+    d.ellipse((3, 7, 12, 14), fill=5); d.ellipse((4, 7, 11, 13), fill=4)
+    d.ellipse((4, 1, 11, 8), fill=5); d.ellipse((5, 2, 10, 7), fill=4)
+    d.line((7, 0, 8, 1), fill=5)                                         # topete
+    if view == 'front':
+        d.point([(6, 4), (9, 4)], 7)
+        d.polygon([(6, 6), (9, 6), (7.5, 8)], fill=6)
+    else:
+        d.line((7, 12, 8, 14), fill=5)                                   # rabinho
+        d.line((4, 9, 5, 11), fill=5); d.line((11, 9, 10, 11), fill=5)   # asinhas
+    return im
+
+
 def spr_leaves():  # paleta de sprites 1
     im = Image.new('P', (16, 16), 0); d = ImageDraw.Draw(im)
     for (x, y) in [(2, 3), (10, 1), (6, 8), (12, 10), (1, 12)]:
@@ -813,6 +828,40 @@ def spr_sparkle():
     return im
 
 
+def spr_cururu(pose):  # paleta de sprites 1 — o sapo-cururu (marrom), o bagunceiro
+    im = Image.new('P', (16, 16), 0); d = ImageDraw.Draw(im)
+    BODY, BELLY, OUT, WH, EYE, TONGUE, HI = 15, 4, 13, 8, 7, 6, 10
+    if pose == 'jump':
+        for x0, x1 in ((4, 1), (11, 14)):            # pernas esticadas
+            d.line((x0, 10, x1, 15), fill=OUT, width=3); d.line((x0, 10, x1, 15), fill=BODY)
+        d.ellipse((2, 4, 13, 12), fill=OUT); d.ellipse((3, 5, 12, 11), fill=BODY)
+        d.ellipse((5, 9, 10, 12), fill=BELLY)
+        oy = -1
+    else:
+        d.ellipse((0, 12, 5, 15), fill=OUT); d.ellipse((10, 12, 15, 15), fill=OUT)   # pés
+        d.ellipse((1, 13, 4, 15), fill=BODY); d.ellipse((11, 13, 14, 15), fill=BODY)
+        d.ellipse((1, 4, 14, 14), fill=OUT); d.ellipse((2, 5, 13, 13), fill=BODY)
+        d.ellipse((5, 11, 10, 14), fill=BELLY)
+        d.point([(3, 10), (12, 11), (4, 12)], OUT)      # pintinhas de sapo-cururu
+        oy = 0
+    for ex in (1, 9):                                # olhos saltados
+        d.ellipse((ex, 0 + oy, ex + 5, 6 + oy), fill=OUT)
+    if pose == 'laugh':                              # olhinhos fechados: "hihi"
+        for ex in (1, 9):
+            d.ellipse((ex + 1, 1 + oy, ex + 4, 5 + oy), fill=BODY)
+            d.line([(ex + 1, 4 + oy), (ex + 2, 2 + oy), (ex + 3, 2 + oy), (ex + 4, 4 + oy)], fill=OUT)
+        d.polygon([(3, 7), (12, 7), (10, 10), (5, 10)], fill=EYE)
+        d.line((6, 9, 9, 9), fill=HI)
+    else:
+        for ex in (1, 9):
+            d.ellipse((ex + 1, 1 + oy, ex + 4, 5 + oy), fill=WH)
+            d.rectangle((ex + 2, 2 + oy, ex + 3, 4 + oy), fill=EYE)
+        my = 8 + oy
+        d.line([(3, my - 1), (4, my), (11, my), (12, my - 1)], fill=OUT)   # sorrisão maroto
+        d.point((10, my + 1), WH)                       # dentinho
+    return im
+
+
 # células 16x16 da folha de sprites (índice = célula)
 SPRITES = [
     ('down0', lambda: chick('down', 0)), ('down1', lambda: chick('down', 1)),
@@ -829,10 +878,15 @@ SPRITES = [
     ('corn', lambda: spr_item('corn')), ('bone', lambda: spr_item('bone')),
     ('firefly', lambda: spr_item('firefly')), ('egg', lambda: spr_item('egg')),
     ('egg_crack', lambda: spr_item('egg_crack')), ('egg_shell', lambda: spr_item('egg_shell')),
+    ('frog_sit', lambda: spr_cururu('sit')), ('frog_jump', lambda: spr_cururu('jump')),
+    ('frog_laugh', lambda: spr_cururu('laugh')),
+    ('duck_front', lambda: spr_duckling_fb('front')), ('duck_back', lambda: spr_duckling_fb('back')),
 ]
+assert len(SPRITES) <= 32, 'a folha de sprites tem 32 células (tiles 0-127)'
 SPR = {name: i for i, (name, _) in enumerate(SPRITES)}
 SPR_PAL2_CELLS = {'shadow', 'duck0', 'duck1', 'leaves', 'can', 'carrot', 'corn', 'bone', 'firefly', 'egg',
-                  'egg_crack', 'egg_shell'}   # usam a paleta de sprites 1
+                  'egg_crack', 'egg_shell', 'frog_sit', 'frog_jump', 'frog_laugh',
+                  'duck_front', 'duck_back'}   # usam a paleta de sprites 1
 
 
 def spr_tile(cell):
@@ -844,6 +898,111 @@ def build_sprites():
     rows = (len(SPRITES) + 7) // 8
     sheet = Image.new('P', (128, rows * 16), 0)
     for i, (_, fn) in enumerate(SPRITES):
+        sheet.paste(fn(), ((i % 8) * 16, (i // 8) * 16))
+    out = bytearray()
+    for ty in range(rows * 2):
+        for tx in range(16):
+            out += tile_4bpp(sheet, tx * 8, ty * 8)
+    return bytes(out), sheet
+
+
+# ---------------------------------------------------------------- placar (fase atual)
+# Número da fase (canto superior direito) e outros desenhos extras.
+# Ficam numa folha própria, nos tiles 384+ da área de sprites.
+HUD_TILE_BASE = 384
+
+
+def _star(fill, outline, shine=None):
+    import math
+    im = Image.new('P', (16, 16), 0); d = ImageDraw.Draw(im)
+    pts = []
+    for i in range(10):
+        r = 7 if i % 2 == 0 else 3.2
+        ang = -math.pi / 2 + i * math.pi / 5
+        pts.append((7.5 + r * math.cos(ang), 8 + r * math.sin(ang)))
+    d.polygon(pts, fill=fill, outline=outline)
+    if shine:
+        d.point([(6, 6), (7, 5)], shine)
+    return im
+
+
+def _glyph(ch, fill=5, outline=15):
+    """Um caractere grande e grosso, branco com contorno escuro."""
+    font = ImageFont.truetype(next(p for p in FONT_CANDIDATES if os.path.exists(p)), 14)
+    W = 16
+    body = Image.new('L', (W, W), 0); edge = Image.new('L', (W, W), 0)
+    w = ImageDraw.Draw(body).textlength(ch, font=font)
+    pos = (W / 2 - w / 2, 13)
+    ImageDraw.Draw(edge).text(pos, ch, font=font, fill=255, anchor='ls', stroke_width=1, stroke_fill=255)
+    ImageDraw.Draw(body).text(pos, ch, font=font, fill=255, anchor='ls')
+    im = Image.new('P', (W, W), 0)
+    for y in range(W):
+        for x in range(W):
+            if body.getpixel((x, y)) >= 110:
+                im.putpixel((x, y), fill)
+            elif edge.getpixel((x, y)) >= 60:
+                im.putpixel((x, y), outline)
+    return im
+
+
+def _slash():
+    im = Image.new('P', (16, 16), 0); d = ImageDraw.Draw(im)
+    d.line((10, 2, 5, 13), fill=15, width=4)
+    d.line((10, 2, 5, 13), fill=5, width=2)
+    return im
+
+
+def _quilt(im, x0, y0, x1, y1):
+    """Retalhos coloridos (paleta de sprites 1)."""
+    d = ImageDraw.Draw(im)
+    d.rectangle((x0, y0, x1, y1), fill=13)
+    cols = [11, 4, 10, 2]
+    for yy in range(y0 + 1, y1, 3):
+        for xx in range(x0 + 1, x1, 3):
+            c = cols[((xx - x0) // 3 + (yy - y0) // 3) % 4]
+            d.rectangle((xx, yy, min(xx + 2, x1 - 1), min(yy + 2, y1 - 1)), fill=c)
+
+
+def spr_blanket(full):
+    im = Image.new('P', (16, 16), 0)
+    if full:
+        _quilt(im, 0, 3, 15, 13)
+    else:
+        _quilt(im, 3, 6, 12, 11)                 # metade: ainda costurando
+    return im
+
+
+def spr_frog_wrapped(frame):
+    """O Cururu enroladinho na coberta, de olhos fechados e sorrindo."""
+    im = Image.new('P', (16, 16), 0); d = ImageDraw.Draw(im)
+    b = frame                                    # respira (sobe e desce 1 px)
+    d.ellipse((1, 3 + b, 14, 13), fill=13); d.ellipse((2, 4 + b, 13, 12), fill=15)
+    for ex in (1, 9):                            # olhos saltados, fechadinhos
+        d.ellipse((ex, 1 + b, ex + 5, 6 + b), fill=13)
+        d.ellipse((ex + 1, 2 + b, ex + 4, 5 + b), fill=15)
+        d.line([(ex + 1, 4 + b), (ex + 2, 3 + b), (ex + 3, 3 + b), (ex + 4, 4 + b)], fill=13)
+    d.line([(5, 7 + b), (6, 8 + b), (9, 8 + b), (10, 7 + b)], fill=13)   # sorriso
+    _quilt(im, 0, 9, 15, 15)
+    return im
+
+
+HUD_SPRITES = [(str(n), (lambda n=n: _glyph(str(n)))) for n in range(10)] + [   # número da fase
+    ('blanket_half', lambda: spr_blanket(False)),  # coberta do Cururu (paleta 1)
+    ('blanket', lambda: spr_blanket(True)),
+    ('frog_wrap0', lambda: spr_frog_wrapped(0)), ('frog_wrap1', lambda: spr_frog_wrapped(1)),
+]
+HUD = {name: i for i, (name, _) in enumerate(HUD_SPRITES)}
+HUD_PAL2_CELLS = {'blanket_half', 'blanket', 'frog_wrap0', 'frog_wrap1'}
+
+
+def hud_tile(name):
+    return HUD_TILE_BASE + spr_tile(HUD[name])
+
+
+def build_hud():
+    rows = (len(HUD_SPRITES) + 7) // 8
+    sheet = Image.new('P', (128, rows * 16), 0)
+    for i, (_, fn) in enumerate(HUD_SPRITES):
         sheet.paste(fn(), ((i % 8) * 16, (i // 8) * 16))
     out = bytearray()
     for ty in range(rows * 2):

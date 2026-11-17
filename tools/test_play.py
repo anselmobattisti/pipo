@@ -71,7 +71,7 @@ class Player:
     def go(self, d, n=1):
         dx, dy = DIRS[d]
         goal = (self.var('tx') + dx * n, self.var('ty') + dy * n)
-        for _ in range(n * 12 + 4):
+        for _ in range(n * 24 + 8):
             if self.pos() == goal and self.var('move_cnt') == 0:
                 break
             self.frames(1, d)
@@ -120,6 +120,36 @@ class Player:
             self.go(d)
         self.bump(goals[self.pos()], msg)
 
+    def intro(self, name=None, wait=False):
+        """Assiste o sapo Cururu bagunçar a fase e fecha a mensagem dele."""
+        lv = self.var('level')
+        assert self.var('mode') == B.MODE_INTRO, 'a fase deveria começar com o sapo'
+        before = bytes(self.emu.wram[B.MAPBUF:B.MAPBUF + 224])
+        k = len(self.emu.spc.kon_log)
+        n = 0
+        while self.var('mode') == B.MODE_INTRO:
+            self.frames(1); n += 1
+            assert n < 3000, 'introdução não terminou'
+            if name and n == 120:
+                self.shot(name + '_sapo')
+        assert self.var('msg_active'), 'mensagem do sapo'
+        if B.intro_data(B.ALL[lv])[0]:
+            assert before != bytes(self.emu.wram[B.MAPBUF:B.MAPBUF + 224]), 'o sapo não mudou nada'
+        assert bytes(self.emu.wram[B.MAPBUF:B.MAPBUF + 224]) == B.level_bytes(B.ALL[lv])[0], \
+            'depois do sapo a fase deveria ficar como no mapa'
+        self.expect_sfx(k, 'laugh')
+        self.frames(25)
+        if name:
+            self.shot(name + '_sapo_fez')
+        if wait:                                         # sem botão: passa sozinho em 5 s
+            self.frames(B.MSG_AUTO_FRAMES - 30)
+            assert self.var('msg_active'), 'cedo demais'
+            self.frames(10)
+        else:
+            self.frames(2, 'A'); self.frames(3)
+        assert not self.var('msg_active') and self.var('mode') == B.MODE_PLAY
+        return n
+
     def stage(self):
         return self.emu.wram[B.V['slot_stage'] + 2 * self.var('pslot')]
 
@@ -147,9 +177,9 @@ class Player:
             if self.var('grow_t') == 0:
                 break
             self.frames(1)
-        assert self.stage() == lv + 1, 'não cresceu (estágio %d)' % self.stage()
+        assert self.stage() == B.stage_for(lv + 1), 'não cresceu (estágio %d)' % self.stage()
         self.shot(name + '_cresceu')
-        for _ in range(len(level_mod.MESSAGES)):
+        for _ in range(len([m for m in level_mod.MESSAGES if m[0] != 'intro'])):
             self.frames(25); self.frames(2, 'A'); self.frames(1)
         self.frames(8)
         nxt = lv + 1 if lv + 1 < len(B.LEVELS) else B.ENDING
@@ -157,6 +187,7 @@ class Player:
         assert self.var('delivered') == 0
         if nxt != B.ENDING:
             assert self.pos() == B.ALL[nxt].START
+            self.intro('f%d' % (nxt + 1))
             assert not self.var('msg_active')
         else:                                  # no final o galo já começa a passear
             assert self.var('ty') == B.ALL[nxt].START[1]
@@ -181,11 +212,30 @@ def main():
     p.frames(40); p.shot('abertura_titulo')
     assert p.var('msg_active') and not p.var('hide_player'), 'o Pipo deveria ter nascido'
     assert p.var('menu_sel') == B.LANG_PT
-    p.frames(2, 'START'); p.frames(3)
-    assert p.var('lang') == B.LANG_PT
+    p.frames(2, 'START'); p.frames(6)                   # idioma
+    assert p.var('lang') == B.LANG_PT and p.var('menu_page') == 1
+    p.shot('menu_som')
+    p.frames(2, 'START'); p.frames(6)                   # som
+    assert p.var('snd_off') == 0 and p.var('menu_page') == 2
+    p.frames(2, 'UP'); p.frames(2)
+    assert p.var('menu_sel') == B.SPEED_SLOW
+    p.frames(2, 'UP'); p.frames(2)
+    assert p.var('menu_sel') == B.SPEED_FAST, 'deveria dar a volta'
+    p.frames(2, 'DOWN'); p.frames(2)
+    assert p.var('menu_sel') == B.SPEED_SLOW
+    p.frames(2, 'DOWN'); p.frames(2)
+    assert p.var('menu_sel') == B.SPEED_NORMAL
+    p.frames(2, 'LEFT'); p.frames(2); p.frames(2, 'RIGHT'); p.frames(2)
+    p.shot('menu_velocidade')
+    p.frames(2, 'START'); p.frames(3)                   # velocidade
+    assert p.var('speed') == B.SPEED_NORMAL
+    p.intro('f1')
     assert p.var('mode') == B.MODE_PLAY and p.var('level') == 0
     assert not p.var('msg_active')
     p.shot('f1_inicio')
+    hud_y = lambda i: p.emu.wram[B.OAM + 4 * (B.HUD_OAM + i) + 1]
+    assert hud_y(0) == 2 and hud_y(1) == 0xF0, 'número "1" no canto superior direito'
+    assert p.emu.wram[B.OAM + 4 * B.HUD_OAM + 2] == B.A.hud_tile('1') & 0xFF
     assert p.emu.spc.running, 'driver de som não foi carregado'
     p.frames(60)
     kons = p.emu.spc.kon_log
@@ -329,24 +379,9 @@ def main():
     p.finish_star(L, find(L, '*')[0], 'f9_estrela')
     assert p.var('pal_id') == 0
 
-    # ---------------- fase 10: música
+    # ---------------- fase 10: ovos
     L = B.level10
     p.shot('f10_inicio')
-    k = len(p.emu.spc.kon_log)
-    p.touch(*find(L, 'm')[0]); p.frames(3); p.expect_sfx(k, 'note1')
-    assert p.var('delivered') == 0
-    for ch, snd in (('X', 'bell1'), ('Y', 'bell2'), ('Z', 'bell3')):
-        k = len(p.emu.spc.kon_log)
-        p.touch(*find(L, ch)[0]); p.frames(3)
-        if ch != 'Z':
-            p.expect_sfx(k, snd)
-    assert p.var('delivered') == 3
-    p.frames(6); p.shot('f10_sinos')
-    p.finish_star(L, find(L, '*')[0], 'f10_estrela')
-
-    # ---------------- fase 11: ovos
-    L = B.level11
-    p.shot('f11_inicio')
     nest = find(L, 'N')[0]
     p.touch(*find(L, 'H')[0]); assert p.var('delivered') == 0       # feno vazio
     for n, (x, y) in enumerate(find(L, 'e')):
@@ -356,30 +391,84 @@ def main():
         p.touch(*nest)
         assert p.tile(*nest) == MT['nest_%d' % (n + 1)]
     assert p.var('delivered') == 3
-    p.frames(6); p.shot('f11_ninho')
+    p.frames(6); p.shot('f10_ninho')
     k = len(p.emu.spc.kon_log)
-    p.finish_star(L, find(L, '*')[0], 'f11_galo')
+    p.finish_star(L, find(L, '*')[0], 'f10_galo')
     p.expect_sfx(k, 'crow')
 
-    # ---------------- tela final
+    # ---------------- tela final: papai, mamãe e a coberta do Cururu
     assert p.var('mode') == B.MODE_END and p.stage() == 11, 'final com o galo'
+    w = p.emu.wram
+    cut_t = lambda: w[B.CUT_T] | (w[B.CUT_T + 1] << 8)
+    oam = lambda i: w[B.OAM + 4 * (B.CUT_OAM + i):B.OAM + 4 * (B.CUT_OAM + i) + 4]
+    for t, name in ((230, 'final_papai_mamae'), (400, 'final_coberta'), (530, 'final_cururu_frio'),
+                    (640, 'final_cururu_quentinho')):
+        while cut_t() < t:
+            p.frames(1)
+        p.shot(name)
+    assert oam(1)[1] != 0xE0 and oam(2)[1] != 0xE0, 'papai e mamãe deveriam aparecer'
+    assert oam(3)[2] == B.A.hud_tile('frog_wrap0') & 0xFF or oam(3)[2] == B.A.hud_tile('frog_wrap1') & 0xFF, \
+        'o Cururu deveria estar enrolado na coberta'
+    for _ in range(400):
+        if w[B.CUT_DONE]:
+            break
+        p.frames(1)
+    assert w[B.CUT_DONE], 'a cena final deveria terminar'
     p.frames(30); p.shot('final')
     x0 = p.var('px')
     p.frames(60)
     assert p.var('px') > x0, 'o galo deveria passear'
     k = len(p.emu.spc.kon_log)
     p.frames(80); p.shot('final_cantando'); p.expect_sfx(k, 'crow')
+    txt0 = bytes(p.emu.wram[B.TXTBUF:B.TXTBUF + 512])
+    p.frames(100); p.shot('final_autores')
+    assert bytes(p.emu.wram[B.TXTBUF:B.TXTBUF + 512]) != txt0, 'deveria mostrar os autores'
     p.frames(2, 'A'); p.frames(3)
     assert p.var('mode') == B.MODE_TITLE, 'deveria voltar para a abertura'
     p.frames(120)
     assert p.stage() == 0, 'abertura com pintinho novo'
     p.shot('menu_pt')
+    assert p.emu.wram[B.OAM + 4 * B.HUD_OAM + 1] == 0xF0, 'placar escondido na abertura'
     # ---------------- inglês
     p.frames(2, 'DOWN'); p.frames(4)
     assert p.var('menu_sel') == B.LANG_EN and p.var('mode') == B.MODE_TITLE
     p.shot('menu_en')
+    p.frames(2, 'A'); p.frames(6)
+    assert p.var('menu_page') == 1
+    # sem som: o volume geral do SPC vai a zero na hora
+    assert p.emu.spc.dsp[0x0C] == 0x7F
+    p.frames(2, 'DOWN'); p.frames(6)
+    assert p.var('snd_off') == 1 and p.emu.spc.dsp[0x0C] == 0 and p.emu.spc.dsp[0x1C] == 0
+    p.shot('menu_sem_som_en')
+    p.frames(2, 'UP'); p.frames(6)
+    assert p.var('snd_off') == 0 and p.emu.spc.dsp[0x0C] == 0x7F, 'som deveria voltar'
+    p.frames(2, 'DOWN'); p.frames(6)
+    p.frames(2, 'A'); p.frames(6)
+    assert p.var('snd_off') == 1 and p.var('menu_page') == 2
+    p.frames(2, 'DOWN'); p.frames(2)                    # rápido
+    p.shot('menu_rapido_en')
     p.frames(2, 'A'); p.frames(3)
-    assert p.var('mode') == B.MODE_PLAY and p.var('level') == 0 and p.var('lang') == B.LANG_EN
+    assert p.var('mode') == B.MODE_INTRO and p.var('level') == 0 and p.var('lang') == B.LANG_EN
+    assert p.var('speed') == B.SPEED_FAST and p.emu.spc.dsp[0x0C] == 0
+    p.intro(wait=True)
+    # quadros para andar um bloco em cada velocidade
+    def step_frames():
+        L = B.level1
+        x, y = p.pos()
+        for d, (dx, dy) in DIRS.items():
+            if not p.solid(x + dx, y + dy) and not p.var('move_cnt'):
+                n = 0
+                while True:
+                    p.frames(1, d if n == 0 else ''); n += 1
+                    if not p.var('move_cnt'):
+                        return n
+        raise AssertionError('sem saída')
+    p.frames(5)
+    for sp in (B.SPEED_FAST, B.SPEED_SLOW, B.SPEED_NORMAL, B.SPEED_FAST):
+        p.emu.wram[B.V['speed']] = sp
+        n = step_frames()
+        assert abs(n - B.SPEED_FRAMES[sp]) <= 1, 'velocidade %d: %d quadros por bloco' % (sp, n)
+    p.emu.wram[B.V['speed']] = B.SPEED_FAST
     L = B.level1
     for item, basket in (('r', '1'), ('b', '2'), ('y', '3')):
         p.touch(*find(L, item)[0]); p.touch(*find(L, basket)[0])
@@ -387,7 +476,7 @@ def main():
     p.frames(12)
     assert p.var('msg_next') == B.MSG['0_grow@en'], 'mensagem deveria estar em inglês'
     p.shot('f1_estrela_ingles')
-    print('OK — abertura, 11 fases, final, volta e fase 1 em inglês (%d quadros emulados)' % p.emu.frame)
+    print('OK — abertura e menu, sapo Cururu + 10 fases, final, volta, fase 1 em inglês sem som e rápida (%d quadros emulados)' % p.emu.frame)
 
 
 if __name__ == '__main__':
