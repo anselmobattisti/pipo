@@ -5,7 +5,8 @@
 
 Não precisa de nenhum assembler externo: o código 65816 é escrito com a DSL de
 tools/asm65816.py e os gráficos são gerados por tools/assets.py.
-As fases ficam em level1.py ... level6.py.
+As fases ficam em level1.py ... level10.py (trilha do sapo) e pato1.py ... pato5.py
+(trilha do Pato Pateta: letras e números).
 """
 import os
 import sys
@@ -27,14 +28,40 @@ import level7  # noqa: E402
 import level8  # noqa: E402
 import level9  # noqa: E402
 import level10  # noqa: E402
+import pato1  # noqa: E402
+import pato2  # noqa: E402
+import pato3  # noqa: E402
+import pato4  # noqa: E402
+import pato5  # noqa: E402
 import title  # noqa: E402
 import ending  # noqa: E402
+import ending2  # noqa: E402
 
-# ordem das fases (depois da última volta para a primeira)
-LEVELS = [level1, level2, level3, level4, level5, level6, level7, level8, level9, level10]
-SCREENS = [title, ending]          # abertura e tela final usam a mesma estrutura de mapa
+# as trilhas (escolhidas no menu): 0 = do sapo Cururu, 1 = do Pato Pateta (letras e números)
+TRAILS = [[level1, level2, level3, level4, level5, level6, level7, level8, level9, level10],
+          [pato1, pato2, pato3, pato4, pato5]]
+LEVELS = TRAILS[0] + TRAILS[1]     # todas as fases, uma trilha depois da outra
+TRAIL_BASE = [0, len(TRAILS[0])]   # número da primeira fase de cada trilha
+SCREENS = [title, ending, ending2]  # abertura e telas finais usam a mesma estrutura de mapa
 ALL = LEVELS + SCREENS
-TITLE, ENDING = len(LEVELS), len(LEVELS) + 1
+TITLE, ENDING, ENDING2 = len(LEVELS), len(LEVELS) + 1, len(LEVELS) + 2
+TRAIL_END = [ENDING, ENDING2]      # tela final de cada trilha
+NBANKS = 16                        # ROM de 512 KB
+assert title.NLEVELS == max(len(t) for t in TRAILS) and title.MENU.index('level0') == 4
+
+
+def trail_pos(i):
+    """(trilha, posição dentro dela) da fase i."""
+    t = max(k for k, b in enumerate(TRAIL_BASE) if b <= i)
+    return t, i - TRAIL_BASE[t]
+
+
+def level_next(i):
+    """Para onde vai depois da fase i: a próxima da trilha ou a tela final dela."""
+    t, k = trail_pos(i)
+    return i + 1 if k + 1 < len(TRAILS[t]) else TRAIL_END[t]
+
+
 MODE_PLAY, MODE_TITLE, MODE_END, MODE_INTRO = 0, 1, 2, 3
 MSG_AUTO_FRAMES = 300   # os diálogos passam sozinhos depois de 5 s (ou antes, com um botão)
 
@@ -64,7 +91,7 @@ for _n in ('joy joy_prev joy_new px py tx ty move_cnt move_dir facing frame_ctr 
            'followers hist_head mother_x mother_y snd_req snd_cnt '
            'pal_id pal_dirty pslot slot_stage slot_stage1 grow_t pu_src pu_bank pu_left pu_vaddr pu_slot '
            'mode scr_t hide_player scene_on scene_x scene_y scene_tile logo_req lang menu_sel menu_page snd_off speed spd_acc msg_auto '
-           'lptr lptr_bank').split():
+           'lptr lptr_bank trail song song_req').split():
     VARS[_n] = _next
     _next += 2
 assert _next < 0x100
@@ -121,6 +148,7 @@ ITEMS = [('ball_r', 'ball_r'), ('ball_b', 'ball_b'), ('ball_y', 'ball_y'),
          ('shape_c', 'shape_c'), ('shape_s', 'shape_s'), ('shape_t', 'shape_t'),
          ('can', 'can'), ('carrot', 'carrot'), ('corn', 'corn'), ('bone', 'bone'),
          ('firefly', 'grass'), ('egg', 'egg')]
+ITEMS += [('blk_' + s, 'blk_' + s) for s in A.SYMBOLS]     # bloquinhos de letras e números
 ITEM = {spr: i + 1 for i, (spr, _) in enumerate(ITEMS)}
 # o que cada metatile vira quando a ação dá certo
 MT_NEXT = {
@@ -131,6 +159,32 @@ MT_NEXT = {
     'sprout_1': 'bloom_1', 'sprout_2': 'bloom_2', 'sprout_3': 'bloom_3',
     'bell_r': 'bellr_r', 'bell_b': 'bellr_b', 'bell_y': 'bellr_y',
 }
+MT_NEXT.update({'slot_' + s: 'slotf_' + s for s in A.SYMBOLS})
+MT_NEXT.update({'dots_%d' % n: 'dotsf_%d' % n for n in range(1, 6)})
+MT_NEXT.update({'button_' + c: 'buttonp_' + c for c in COLORS})
+MT_NEXT.update({'nbutton_%d' % k: 'nbuttonp_%d' % k for k in (1, 2, 3)})
+# quem bagunça a fase na introdução: desenhos (pulando, parado, rindo) e sons
+# (ao chegar, a cada bagunça, na última, ao voltar para casa)
+VISITORS = {
+    'frog': dict(tile='frog', under='water', sprites=('frog_jump', 'frog_sit', 'frog_laugh'),
+                 sfx=('croak', 'mischief', 'laugh', 'croak')),
+    'pato': dict(tile='pato', under='grass', sprites=('pato_jump', 'pato_sit', 'pato_laugh'),
+                 sfx=('quack', 'oops', 'quack', 'quack')),
+}
+VISITOR_ORDER = ['frog', 'pato']
+
+
+def visitor(L):
+    return VISITORS[getattr(L, 'VISITOR', 'frog')]
+
+
+def sprite_word(name, prio=0x20):
+    """tile | atributos << 8 de um sprite 16x16 (da folha principal ou da folha extra)."""
+    if name in A.SPR:
+        t, pal2 = A.spr_tile(A.SPR[name]), name in A.SPR_PAL2_CELLS
+    else:
+        t, pal2 = A.hud_tile(name), name in A.HUD_PAL2_CELLS
+    return (t & 0xFF) | ((prio | (2 if pal2 else 0) | (t >> 8)) << 8)
 STAGE_SLOT_VRAM = [VRAM_SPR + 128 * 16, VRAM_SPR + 256 * 16]   # 2 áreas de 128 tiles
 STAGE_SLOT_TILE = [128, 256]
 GROW_FRAMES = 160      # duração do "crescer" (pisca nos últimos 100 quadros)
@@ -151,7 +205,7 @@ def build():
                                            A.render_logo([('THE END!', 36)], width=200, height=48)])
 
     # gráficos no banco 1, tiles das mensagens onde couber (bancos 1 a 3)
-    banks = {b: bytearray() for b in range(1, 8)}
+    banks = {b: bytearray() for b in range(1, NBANKS)}
     gfx = {}
     for name, blob in (('bg_tiles', bg_tiles), ('box_tiles', box_tiles), ('spr_tiles', spr_tiles),
                        ('logo_tiles', logo_tiles)):
@@ -161,31 +215,31 @@ def build():
     stage_src = []
     for st in range(growth.STAGES):
         blob = stage_tiles(st)
-        bank = next(b for b in range(2, 8) if len(banks[b]) + len(blob) <= 0x8000)
+        bank = next(b for b in range(2, NBANKS) if len(banks[b]) + len(blob) <= 0x8000)
         stage_src.append((bank, 0x8000 + len(banks[bank])))
         banks[bank] += blob
     # papai e mamãe (uma área de sprites inteira) e a cena final quadro a quadro
     par = growth.parents_sheet()
     par_tiles = b''.join(A.tile_4bpp(par, tx * 8, ty * 8) for ty in range(8) for tx in range(16))
-    pb = next(b for b in range(2, 8) if len(banks[b]) + len(par_tiles) <= 0x8000)
+    pb = next(b for b in range(2, NBANKS) if len(banks[b]) + len(par_tiles) <= 0x8000)
     gfx['parents'] = (pb, 0x8000 + len(banks[pb]))
     banks[pb] += par_tiles
     cut_blob, cut_events = ending_cutscene()
-    cb = next(b for b in range(2, 8) if len(banks[b]) + len(cut_blob) <= 0x8000)
+    cb = next(b for b in range(2, NBANKS) if len(banks[b]) + len(cut_blob) <= 0x8000)
     cut_addr = (cb << 16) | (0x8000 + len(banks[cb]))
     banks[cb] += cut_blob
     global PARENTS_SRC, CUT_EVENT_LIST
     PARENTS_SRC = gfx['parents']
     CUT_EVENT_LIST = cut_events
     hud_tiles, _ = A.build_hud()             # placar: estrelinhas e desenhos extras
-    hb = next(b for b in range(2, 8) if len(banks[b]) + len(hud_tiles) <= 0x8000)
+    hb = next(b for b in range(2, NBANKS) if len(banks[b]) + len(hud_tiles) <= 0x8000)
     gfx['hud'] = (hb, 0x8000 + len(banks[hb]), len(hud_tiles))
     banks[hb] += hud_tiles
     msg_src = []
     for tiles, m in msgs:
         mapb = b''.join((0x2400 | t).to_bytes(2, 'little') for t in m)   # prioridade + paleta 1
         blob = mapb + tiles
-        bank = next(b for b in range(1, 8) if len(banks[b]) + len(blob) <= 0x8000)
+        bank = next(b for b in range(1, NBANKS) if len(banks[b]) + len(blob) <= 0x8000)
         base = 0x8000 + len(banks[bank])
         msg_src.append((bank, base + len(mapb), len(tiles), base))   # banco, tiles, tamanho, mapa
         banks[bank] += blob
@@ -409,7 +463,9 @@ def emit_main(a):
     a.ldx(V['menu_page'])
     a.lda(V['lang']); a.cpx('#', 0); a.beq('sp_set')
     a.lda(V['snd_off']); a.cpx('#', 1); a.beq('sp_set')
-    a.lda(V['speed'])
+    a.lda(V['speed']); a.cpx('#', 2); a.beq('sp_set')
+    a.lda(V['trail']); a.cpx('#', 3); a.beq('sp_set')
+    a.lda('#', 0)                             # escolha da fase: começa na fase 1
     a.label('sp_set')
     a.sta(V['menu_sel'])
     a.jmp('draw_menu')
@@ -421,19 +477,24 @@ def emit_main(a):
     a.lda(V['msg_pending']); a.jne('ut_ret')
     # direcional: troca a opção
     a.lda(V['joy_new']); a.and_('#', 0x0F00); a.beq('ut_btn')
-    a.ldx(V['menu_page']); a.cpx('#', 2); a.beq('ut_speed')
+    a.ldx(V['menu_page']); a.cpx('#', 2); a.bcs('ut_speed')
     a.lda(V['menu_sel']); a.eor('#', 1); a.sta(V['menu_sel'])
     a.cpx('#', 1); a.bne('ut_note')
     # som: vale na hora (desligado = volume zero; ligado = volume e um "plim")
     a.sta(V['snd_off'])
     a.eor('#', 1); a.ora('#', sound.CMD_MUTE); a.sta(V['snd_req'])
     a.jmp('draw_menu')
-    a.label('ut_speed')                       # 3 opções: cima/esquerda volta, baixo/direita avança
+    a.label('ut_speed')                       # várias opções: cima/esquerda volta, baixo/direita avança
+    a.lda('#', 3); a.cpx('#', 2); a.beq('ut_sp_n')      # velocidade: 3; trilha: 2; fase: as da trilha
+    a.lda('#', 2); a.cpx('#', 3); a.beq('ut_sp_n')
+    a.lda(V['trail']); a.asl(); a.tax(); a.lda('trail_len', 'x')
+    a.label('ut_sp_n')
+    a.sta(V['tmp1'])
     a.lda(V['joy_new']); a.and_('#', BTN_UP | BTN_LEFT); a.beq('ut_sp_inc')
     a.lda(V['menu_sel']); a.dec(); a.bpl('ut_sp_ok')
-    a.lda('#', 2); a.bra('ut_sp_ok')
+    a.lda(V['tmp1']); a.dec(); a.bra('ut_sp_ok')
     a.label('ut_sp_inc')
-    a.lda(V['menu_sel']); a.inc(); a.cmp('#', 3); a.bcc('ut_sp_ok')
+    a.lda(V['menu_sel']); a.inc(); a.cmp(V['tmp1']); a.bcc('ut_sp_ok')
     a.lda('#', 0)
     a.label('ut_sp_ok')
     a.sta(V['menu_sel'])
@@ -450,20 +511,31 @@ def emit_main(a):
     a.cpx('#', 1); a.bne('ut_c2')
     a.sta(V['snd_off']); a.bra('ut_cdone')
     a.label('ut_c2')
-    a.sta(V['speed'])
+    a.cpx('#', 2); a.bne('ut_c3')
+    a.sta(V['speed']); a.bra('ut_cdone')
+    a.label('ut_c3')
+    a.cpx('#', 3); a.bne('ut_cdone')          # a fase escolhida fica em menu_sel
+    a.sta(V['trail'])
     a.label('ut_cdone')
     sfx(a, 'pick')
     a.inc(V['menu_page'])
     a.lda(V['menu_page']); a.cmp('#', len(title.MENU)); a.jcc('show_page')
-    a.stz(V['level'])
+    a.lda(V['trail']); a.asl(); a.tax()       # a última tela é a da fase (dentro da trilha)
+    a.lda(V['menu_sel']); a.clc(); a.adc('trail_base', 'x'); a.sta(V['level'])
     a.jmp('reset_level')
     a.label('ut_ret')
     a.rts()
 
     # draw_menu: coração ao lado da opção escolhida (dentro da caixa de texto).
-    # menu_hpos[(lang*3 + página)*3 + opção] = posição no TXTBUF ($FFFF = não existe)
+    # menu_hpos[(lang*4 + página)*3 + opção] = posição no TXTBUF ($FFFF = não existe)
     a.label('draw_menu')
-    a.lda(V['lang']); a.asl(); a.clc(); a.adc(V['lang']); a.clc(); a.adc(V['menu_page'])
+    a.lda(V['menu_page']); a.cmp('#', 4); a.bne('dm_heart')
+    # escolha da fase: em vez do coração, troca a caixa pela do número escolhido
+    a.lda('#', MSG['%d_level0' % TITLE]); a.clc(); a.adc(V['menu_sel']); a.jsr('show_msg')
+    a.lda('#', 0x3FF); a.sta(V['txt_scroll'])
+    a.rts()
+    a.label('dm_heart')
+    a.lda(V['lang']); a.asl(); a.asl(); a.clc(); a.adc(V['menu_page'])
     a.sta(V['tmp0']); a.asl(); a.clc(); a.adc(V['tmp0']); a.sta(V['tmp0'])
     for sel in range(3):                      # apaga os corações da tela
         a.lda(V['tmp0']); a.clc(); a.adc('#', sel); a.asl(); a.tax()
@@ -482,6 +554,7 @@ def emit_main(a):
     a.label('update_ending')
     a.lda(V['msg_pending']); a.beq('ue_0'); a.jsr('update_msg')
     a.label('ue_0')
+    a.lda(V['level']); a.cmp('#', ENDING2); a.beq('ue_on')   # trilha do pato: sem a cena da coberta
     a.jsr('cut_step')
     a.lda(CUT_DONE); a.bne('ue_on')
     a.rts()                                   # durante a cena: o Pipo só assiste
@@ -492,10 +565,18 @@ def emit_main(a):
     a.label('ue_1')
     # a caixa alterna a cada ~4 s: amigos felizes <-> autores
     a.lda(V['scr_t']); a.and_('#', 511); a.cmp('#', 256); a.bne('ue_c1')
-    a.lda('#', MSG['%d_credits' % ENDING]); a.jsr('show_msg'); a.bra('ue_c2')
+    a.lda('#', MSG['%d_credits' % ENDING])
+    a.ldx(V['level']); a.cpx('#', ENDING2); a.bne('ue_cr')
+    a.lda('#', MSG['%d_credits' % ENDING2])
+    a.label('ue_cr')
+    a.jsr('show_msg'); a.bra('ue_c2')
     a.label('ue_c1')
     a.cmp('#', 0); a.bne('ue_c2')
-    a.lda('#', MSG['%d_box' % ENDING]); a.jsr('show_msg')
+    a.lda('#', MSG['%d_box' % ENDING])
+    a.ldx(V['level']); a.cpx('#', ENDING2); a.bne('ue_bx')
+    a.lda('#', MSG['%d_box' % ENDING2])
+    a.label('ue_bx')
+    a.jsr('show_msg')
     a.label('ue_c2')
     # botão: volta para a abertura
     a.lda(V['scr_t']); a.cmp('#', 120); a.bcc('ue_walk')
@@ -556,7 +637,10 @@ def emit_main(a):
 
     # envia um pedido de efeito sonoro por quadro
     a.label('send_sound')
-    a.lda(V['snd_req']); a.beq('ss_ret')
+    a.lda(V['snd_req']); a.bne('ss_send')
+    a.lda(V['song_req']); a.beq('ss_ret')     # troca de música: quando não há efeito na fila
+    a.stz(V['song_req'])
+    a.label('ss_send')
     a.a8()
     a.sta(0x2141)
     a.inc(V['snd_cnt']); a.lda(V['snd_cnt']); a.sta(0x2140)
@@ -823,13 +907,14 @@ def emit_actions(a):
     sfx(a, 'piu')
     a.jmp('fx_at_target')
 
-    # goal_reached: mais um objetivo cumprido; no 3º o portão abre
+    # goal_reached: mais um objetivo cumprido; no último (lvl_goal, quase sempre o 3º) o portão abre
     a.label('goal_reached')
     sfx(a, 'yay')
     a.label('goal_quiet')
     a.inc(V['delivered'])
     a.lda('#', 120); a.sta(V['happy'])
-    a.lda(V['delivered']); a.cmp('#', 3); a.bne('gr_ret')
+    a.lda(V['level']); a.asl(); a.tax()
+    a.lda(V['delivered']); a.cmp('lvl_goal', 'x'); a.bne('gr_ret')
     sfx(a, 'gate')
     a.jmp('open_gate')
     a.label('gr_ret')
@@ -850,6 +935,11 @@ def emit_actions(a):
     sfx(a, 'piu')
     a.rts()
 
+    a.label('act_quack')                      # o Pato Pateta: quá-quá e um pulinho do Pipo
+    a.lda('#', 40); a.sta(V['happy'])
+    sfx(a, 'quack')
+    a.rts()
+
     a.label('fx_at_target')
     a.lda(V['target']); a.and_('#', 0x0F); a.asl(); a.asl(); a.asl(); a.asl(); a.sta(V['fx_x'])
     a.lda(V['target']); a.and_('#', 0xF0); a.sta(V['fx_y'])
@@ -857,8 +947,15 @@ def emit_actions(a):
     a.rts()
 
     a.label('act_mother')                     # mamãe pata recebe os patinhos da fila
+    a.lda('mt_arg', 'x'); a.sta(V['tmp3'])    # qual pedaço dela foi tocado (ela ocupa 2x2 blocos)
     a.lda(V['target']); a.and_('#', 0x0F); a.asl(); a.asl(); a.asl(); a.asl(); a.sta(V['mother_x'])
     a.lda(V['target']); a.and_('#', 0xF0); a.sta(V['mother_y'])
+    a.lda(V['tmp3']); a.and_('#', 1); a.beq('am_left')
+    a.lda(V['mother_x']); a.sec(); a.sbc('#', 16); a.sta(V['mother_x'])
+    a.label('am_left')
+    a.lda(V['tmp3']); a.and_('#', 2); a.beq('am_top')
+    a.lda(V['mother_y']); a.sec(); a.sbc('#', 16); a.sta(V['mother_y'])
+    a.label('am_top')
     a.ldx('#', 0)
     a.label('am_loop')
     a.lda(B_ACT, 'x'); a.cmp('#', DUCK_FOLLOW); a.bne('am_next')
@@ -890,7 +987,7 @@ def emit_actions(a):
 
     a.label('step_button')                    # pisou num botão: aparece a ponte
     a.lda('mt_arg', 'x'); a.sta(V['tmp3'])
-    a.clc(); a.adc('#', MT['buttonp_r'] - 1)
+    a.lda('mt_next', 'x')
     a.jsr('set_tile')
     a.lda('#', 60); a.sta(V['happy'])
     sfx(a, 'gate')
@@ -986,6 +1083,9 @@ def emit_level(a):
     # paleta (dia/noite)
     a.lda(V['level']); a.asl(); a.tax()
     a.lda('lvl_pal', 'x'); a.sta(V['pal_id'])
+    a.lda('lvl_song', 'x'); a.cmp(V['song']); a.beq('rl_song_ok')   # música da trilha
+    a.sta(V['song']); a.ora('#', sound.CMD_SONG); a.sta(V['song_req'])
+    a.label('rl_song_ok')
     a.a8(); a.lda('#', 1); a.sta(V['pal_dirty']); a.rep(0x20)
     for n in ('carry', 'delivered', 'reset_after', 'move_cnt', 'happy', 'facing', 'msg_active',
               'msg_pending', 'fx_timer', 'followers', 'hist_head'):
@@ -1036,7 +1136,7 @@ def emit_level(a):
     a.stz(IN_HOP); a.stz(IN_REVEAL)
     a.lda('#', 50); a.sta(IN_PAUSE)
     a.lda('#', MODE_INTRO); a.sta(V['mode'])
-    sfx(a, 'croak')
+    a.lda('lvl_in_sfx', 'x'); a.sta(V['snd_req'])
     a.label('rl_nointro')
     a.rts()
     a.label('rl_screen')
@@ -1045,6 +1145,12 @@ def emit_level(a):
     a.sta(V['logo_req'])                      # logotipo PIPO NO JARDIM
     a.rts()
     a.label('rl_final')
+    a.lda(V['level']); a.cmp('#', ENDING2); a.bne('rl_final1')
+    # final da trilha do Pato Pateta: sem cena, já mostra o FIM!
+    a.lda('#', 1); a.sta(CUT_DONE)
+    a.lda(V['lang']); a.asl(); a.clc(); a.adc('#', 2); a.sta(V['logo_req'])   # FIM! / THE END!
+    a.lda('#', MSG['%d_box' % ENDING2]); a.jmp('show_msg')
+    a.label('rl_final1')
     # começa a cena do papai e da mamãe; o FIM! aparece no fim dela
     a.stz(CUT_T); a.stz(CUT_OFS); a.stz(CUT_EV); a.stz(CUT_DONE)
     # desenhos do papai e da mamãe na área de sprites que o Pipo não está usando
@@ -1336,7 +1442,7 @@ def hud_digits():
     """Para cada fase: 2 palavras (posição, tile|atributos) por algarismo; y=$F0 = vazio."""
     out = []
     for lv in range(len(LEVELS)):
-        txt = str(lv + 1)
+        txt = str(trail_pos(lv)[1] + 1)       # número dentro da trilha
         cells = []
         for i, ch in enumerate(txt):
             x = HUD_RIGHT_X - HUD_DIGIT_STEP * (len(txt) - 1 - i)
@@ -1374,13 +1480,34 @@ CURURU_TIDY = {
 CURURU_SFX = {'X': 'bell1', 'Y': 'bell2', 'Z': 'bell3'}
 
 
+def char_mt(L, c):
+    """Metatile de uma letra do mapa (a fase pode ter letras só dela, em CHARS)."""
+    return getattr(L, 'CHARS', {}).get(c) or CHAR_MT.get(c)
+
+
+def tidy_mt(L, ch):
+    """Como a letra `ch` estava antes da bagunça (None = igual)."""
+    name = getattr(L, 'CHARS', {}).get(ch)
+    if name is None:
+        return CURURU_TIDY.get(ch)
+    if name in MT_NEXT:                                    # casinha: começa cheia
+        return MT_NEXT[name]
+    if any(name == m for _, m in ITEMS):                   # bloquinho: ainda não estava no chão
+        return 'grass'
+    return None
+
+
 def intro_data(L):
-    """Roteiro do sapo numa fase: (lista de arrumação, roteiro em palavras, início x/y)
-    ou None. Roteiro: por pulo X0 Y0 VX VY (12.4 px) SFX N [ÍNDICE MT]*N REVELA PAUSA;
-    fim = $8000."""
+    """Roteiro do sapo (ou do Pato Pateta) numa fase: (lista de arrumação, roteiro em
+    palavras, início x/y) ou None. Roteiro: por pulo X0 Y0 VX VY (12.4 px) SFX N
+    [ÍNDICE MT]*N REVELA PAUSA; fim = $8000.
+    Cada parada de CURURU é uma ou mais letras do mapa: ele pula até a 1ª e todas mudam."""
     spots = getattr(L, 'CURURU', None)
     if not spots:
         return None
+    vis = visitor(L)
+    sfx_step, sfx_last, sfx_home = vis['sfx'][1:]
+    local = getattr(L, 'CHARS', {})
     _, spawns = level_bytes(L)
     pos = {}
     for y, row in enumerate(L.LEVEL):
@@ -1388,36 +1515,38 @@ def intro_data(L):
             pos.setdefault(c, []).append((x, y))
     seen = {}
     tidy, events = [], []
-    for k, ch in enumerate(spots):
+    for k, spot in enumerate(spots):
         last = k == len(spots) - 1
-        if isinstance(ch, tuple):                          # (x, y, 'scare'): assusta os amigos
-            x, y, _ = ch
-            events.append(((x * 16, y * 16), 'laugh' if last else 'mischief', [], SCARE, 90))
+        if isinstance(spot, tuple):                        # (x, y, 'scare'): assusta os amigos
+            x, y, _ = spot
+            events.append(((x * 16, y * 16), sfx_last if last else sfx_step, [], SCARE, 90))
             continue
-        n = seen.get(ch, 0); seen[ch] = n + 1
-        x, y = pos[ch][n]
-        idx = y * 16 + x
-        changes, reveal = [], 0
-        actor = [i for i, sp in enumerate(spawns) if sp[:2] == (x, y)]
-        if actor:
-            reveal = 1 << actor[0]
-            changes.append((idx, MT['grass']))           # só para as folhinhas aparecerem
-        else:
-            changes.append((idx, MT[CHAR_MT[ch]]))
-            if CURURU_TIDY.get(ch):
-                tidy.append((idx, MT[CURURU_TIDY[ch]]))
-            if ch in 'AEJ':                                # bichinho embaixo do balão
+        changes, reveal, land = [], 0, None
+        for ch in spot:
+            n = seen.get(ch, 0); seen[ch] = n + 1
+            x, y = pos[ch][n]
+            land = land or (x * 16, y * 16)
+            idx = y * 16 + x
+            actor = [i for i, sp in enumerate(spawns) if sp[:2] == (x, y)] if ch not in local else []
+            if actor:
+                reveal |= 1 << actor[0]
+                changes.append((idx, MT['grass']))           # só para as folhinhas aparecerem
+                continue
+            changes.append((idx, MT[char_mt(L, ch)]))
+            if tidy_mt(L, ch):
+                tidy.append((idx, MT[tidy_mt(L, ch)]))
+            if ch in 'AEJ' and ch not in local:            # bichinho embaixo do balão
                 below = L.LEVEL[y + 1][x]
                 tidy.append((idx + 16, MT[MT_NEXT[CHAR_MT[below]]]))
                 changes.append((idx + 16, MT[CHAR_MT[below]]))
-        sfx_name = 'laugh' if last else CURURU_SFX.get(ch, 'mischief')
-        events.append(((x * 16, y * 16), sfx_name, changes, reveal, 45 if last else 22))
-    home = pos.get('F', [None])[0]
-    if home:                                               # mora na lagoa
+        sfx_name = sfx_last if last else CURURU_SFX.get(spot if spot not in local else '', sfx_step)
+        events.append((land, sfx_name, changes, reveal, 45 if last else 22))
+    home = next((p[0] for c, p in pos.items() if char_mt(L, c) == vis['tile']), None)
+    if home:                                               # mora na fase (o sapo, na lagoa)
         hidx = home[1] * 16 + home[0]
-        tidy.append((hidx, MT['water']))
+        tidy.append((hidx, MT[vis['under']]))
         start = end = (home[0] * 16, home[1] * 16)
-        events.append((end, 'croak', [(hidx, MT['frog'])], 0, 20))
+        events.append((end, sfx_home, [(hidx, MT[vis['tile']])], 0, 20))
     else:                                                  # vem de fora do jardim, por cima
         start = (events[0][0][0], -40)
         end = (events[-1][0][0], -40)
@@ -1513,14 +1642,17 @@ def emit_intro(a):
     a.lda(IN_HOP); a.beq('df_sit')
     a.lda(IN_T); a.asl(); a.tax()
     a.lda(V['tmp1']); a.sec(); a.sbc('intro_arc', 'x'); a.sta(V['tmp1'])
-    a.lda('#', A.spr_tile(A.SPR['frog_jump'])); a.bra('df_tile')
+    a.lda('#', 0); a.bra('df_tile')            # pulando
     a.label('df_sit')
     a.lda(V['frame_ctr']); a.and_('#', 16); a.beq('df_s0')
-    a.lda('#', A.spr_tile(A.SPR['frog_laugh'])); a.bra('df_tile')
+    a.lda('#', 4); a.bra('df_tile')            # rindo
     a.label('df_s0')
-    a.lda('#', A.spr_tile(A.SPR['frog_sit']))
+    a.lda('#', 2)                              # parado
     a.label('df_tile')
-    a.ora('#', 0x22 << 8)                      # prioridade 2, paleta de sprites 1
+    a.sta(V['tmp2'])
+    a.lda(V['level']); a.asl(); a.tax()        # sapo Cururu ou Pato Pateta
+    a.lda('lvl_visitor', 'x'); a.clc(); a.adc(V['tmp2']); a.tax()
+    a.lda('vis_tiles', 'x')                    # tile | atributos (prioridade 2)
     a.sta(OAM + 4 * FROG_OAM + 2)
     a.a8()
     a.lda(V['tmp0']); a.sta(OAM + 4 * FROG_OAM)
@@ -1885,9 +2017,20 @@ def emit_data(a, mt_table, msgs, msg_src, stage_src, logo_maps):
     a.label('mt_next'); a.word(*[MT[MT_NEXT[n]] if n in MT_NEXT else 0 for n, _, _ in A.METATILES])
     a.label('item_mt'); a.word(0, *[MT[m] for _, m in ITEMS])
     a.label('item_tiles')
-    a.word(0, *[A.spr_tile(A.SPR[n]) for n, _ in ITEMS])
+    a.word(0, *[sprite_word(n) & 0xFF for n, _ in ITEMS])
     a.label('item_attr')
-    a.word(0, *[0x22 if n in A.SPR_PAL2_CELLS else 0x20 for n, _ in ITEMS])
+    a.word(0, *[sprite_word(n) >> 8 for n, _ in ITEMS])
+    a.label('vis_tiles')                      # 3 palavras por visitante: pulando, parado, rindo
+    for name in VISITOR_ORDER:
+        a.word(*[sprite_word(sp) for sp in VISITORS[name]['sprites']])
+    a.label('lvl_visitor')
+    a.word(*[VISITOR_ORDER.index(getattr(L, 'VISITOR', 'frog')) * 6 for L in ALL])
+    a.label('lvl_in_sfx'); a.word(*[sound.SFX[visitor(L)['sfx'][0]] for L in ALL])
+    a.label('lvl_goal'); a.word(*[getattr(L, 'GOAL', 3) for L in ALL])
+    a.label('lvl_song')                       # cada trilha tem a sua música
+    a.word(*([trail_pos(i)[0] for i in range(len(LEVELS))] + [0, 0, 1]))
+    a.label('trail_base'); a.word(*TRAIL_BASE)
+    a.label('trail_len'); a.word(*[len(t) for t in TRAILS])
     intros = [intro_data(L) if L in LEVELS else None for L in ALL]
     for i, d in enumerate(intros):
         if d:
@@ -1948,7 +2091,7 @@ def emit_data(a, mt_table, msgs, msg_src, stage_src, logo_maps):
     a.label('dir_dy'); a.word(1, 0xFFFF, 0, 0)
     # onde os patinhos ficam ao lado da mamãe pata (à esquerda dela, na água)
     a.label('home_dx'); a.word(*[(-v) & 0xFFFF for v in (13, 24, 35)])
-    a.label('home_dy'); a.word(3, 7, 3)
+    a.label('home_dy'); a.word(13, 19, 13)
 
     # por fase
     n = len(ALL)
@@ -1957,10 +2100,11 @@ def emit_data(a, mt_table, msgs, msg_src, stage_src, logo_maps):
     a.label('lvl_start_x'); a.word(*[L.START[0] for L in ALL])
     a.label('lvl_start_y'); a.word(*[L.START[1] for L in ALL])
     a.label('lvl_star_msg'); a.word(*[MSG['%d_star1' % i] if i < nl else 0 for i in range(n)])
-    a.label('lvl_next'); a.word(*[i + 1 if i < nl - 1 else (ENDING if i == nl - 1 else 0) for i in range(n)])
-    a.label('lvl_mode'); a.word(*([MODE_PLAY] * nl + [MODE_TITLE, MODE_END]))
-    a.label('lvl_stage'); a.word(*([stage_for(i) for i in range(nl)] + [0, growth.STAGES - 1]))
-    a.label('lvl_stage_next'); a.word(*[stage_for(i + 1) for i in range(nl)])
+    a.label('lvl_next'); a.word(*[level_next(i) if i < nl else 0 for i in range(n)])
+    a.label('lvl_mode'); a.word(*([MODE_PLAY] * nl + [MODE_TITLE, MODE_END, MODE_END]))
+    a.label('lvl_stage')
+    a.word(*([stage_for(i) for i in range(nl)] + [0, growth.STAGES - 1, growth.STAGES - 1]))
+    a.label('lvl_stage_next'); a.word(*[stage_after(i) for i in range(nl)])
     for i, m in enumerate(logo_maps):
         a.label('logo_map_%d' % i); a.word(*m)
     a.label('logo_src'); a.word(0, 'logo_map_0', 'logo_map_1', 'zero_word', 'logo_map_2')
@@ -2026,7 +2170,8 @@ def metatile_rules():
         'bush_1': (1, 'hide', MT['rabbit']), 'bush_2': (1, 'hide', MT['bird']),
         'bush_3': (1, 'hide', MT['hedgehog']),
         'rabbit': (1, 'friend', 0), 'bird': (1, 'friend', 0), 'hedgehog': (1, 'friend', 0),
-        'mother': (1, 'mother', 0),
+        'mother': (1, 'mother', 0), 'mother_1': (1, 'mother', 1),
+        'mother_2': (1, 'mother', 2), 'mother_3': (1, 'mother', 3),
     }
     for i, (_, m) in enumerate(ITEMS):
         if m != 'grass':
@@ -2053,13 +2198,24 @@ def metatile_rules():
         rules['bridge_' + c] = (0, None, 0)
         rules['button_' + c] = (0, None, i + 1)
         rules['buttonp_' + c] = (0, None, 0)
+    # trilha do Pato Pateta: casinhas, cartões de bolinhas, botões numerados e o pato
+    for sy in A.SYMBOLS:
+        rules['slot_' + sy] = (1, 'basket', ITEM['blk_' + sy])
+        rules['slotf_' + sy] = (1, 'friend', 0)
+    for k in range(1, 6):
+        rules['dots_%d' % k] = (1, 'basket', ITEM['blk_%d' % k])
+        rules['dotsf_%d' % k] = (1, 'friend', 0)
+    for k in (1, 2, 3):
+        rules['nbutton_%d' % k] = (0, None, k)
+        rules['nbuttonp_%d' % k] = (0, None, 0)
+    rules['pato'] = (1, 'quack', 0)
     solid, action, arg, step = [], [], [], []
     for name, _, _ in A.METATILES:
         s, act, ar = rules.get(name, (1, None, 0))   # o resto é só obstáculo
         solid.append(s)
         action.append('act_' + (act or 'none'))
         arg.append(ar)
-        step.append('step_button' if name.startswith('button_') else 'step_none')
+        step.append('step_button' if name.startswith(('button_', 'nbutton_')) else 'step_none')
     return solid, action, arg, step
 
 
@@ -2094,8 +2250,15 @@ CHAR_MT = {
 
 
 def stage_for(i):
-    """Tamanho do Pipo no começo da fase i (0 = pintinho; depois da última = galo)."""
-    return round(i * (growth.STAGES - 1) / len(LEVELS))
+    """Tamanho do Pipo no começo da fase i (0 = pintinho no começo de cada trilha)."""
+    t, k = trail_pos(i)
+    return round(k * (growth.STAGES - 1) / len(TRAILS[t]))
+
+
+def stage_after(i):
+    """Tamanho do Pipo depois da estrela da fase i (depois da última da trilha = galo)."""
+    t, k = trail_pos(i)
+    return round((k + 1) * (growth.STAGES - 1) / len(TRAILS[t]))
 
 
 def menu_heart_pos():
@@ -2104,7 +2267,7 @@ def menu_heart_pos():
     font = A._font()
     out = []
     for lang in (LANG_PT, LANG_EN):
-        for page in title.MENU:
+        for page in title.MENU[:4]:           # a tela da fase não tem coração
             lines = MESSAGES[MSG['%d_%s' % (TITLE, page)] + (NPT if lang else 0)][1]
             for i in range(3):
                 if i >= len(lines):
@@ -2127,9 +2290,13 @@ def level_bytes(L):
     lv = L.LEVEL
     assert len(lv) == 14 and all(len(r) == 16 for r in lv), 'mapa deve ser 16x14: %s' % L.__name__
     bouncy = getattr(L, 'BOUNCY', False)
+    local = getattr(L, 'CHARS', {})           # letras só desta fase (valem antes das outras)
     out, spawns = bytearray(), []
     for y, row in enumerate(lv):
         for x, c in enumerate(row):
+            if c in local:
+                out.append(MT[local[c]])
+                continue
             if bouncy and c in 'rby':
                 spawns.append(((x, y, KIND_BALL, 'rby'.index(c) + 1), 'rby'.index(c)))
                 c = '.'
@@ -2141,6 +2308,13 @@ def level_bytes(L):
                 c = '.'
             assert c in CHAR_MT, 'letra desconhecida %r em %s' % (c, L.__name__)
             out.append(MT[CHAR_MT[c]])
+    # a mamãe pata é grande: o M é o canto de cima à esquerda de um bloco 2x2
+    for y, row in enumerate(lv):
+        for x, c in enumerate(row):
+            if c == 'M' and 'M' not in local:
+                for part, (dx, dy) in enumerate([(1, 0), (0, 1), (1, 1)], 1):
+                    assert lv[y + dy][x + dx] == 'W', 'a mamãe pata precisa de 2x2 de água'
+                    out[(y + dy) * 16 + x + dx] = MT['mother_%d' % part]
     assert len(spawns) <= 3
     # bolas na ordem vermelha, azul, amarela (o ator i carrega o item i+1)
     spawns = [s for s, _ in sorted(spawns, key=lambda t: t[1])]
@@ -2171,7 +2345,7 @@ def palettes():
 
 
 def finish_rom(code, banks, a):
-    rom = bytearray(0x40000)  # 256 KB = bancos 0..7
+    rom = bytearray(NBANKS * 0x8000)  # 512 KB = bancos 0..15
     rom[0:len(code)] = code
     for b, data in banks.items():
         rom[b * 0x8000:b * 0x8000 + len(data)] = data
@@ -2179,7 +2353,7 @@ def finish_rom(code, banks, a):
     rom[h:h + 21] = b'PIPO NO JARDIM'.ljust(21)
     rom[h + 0x15] = 0x20   # LoROM
     rom[h + 0x16] = 0x00   # só ROM
-    rom[h + 0x17] = 0x08   # 256 KB
+    rom[h + 0x17] = 0x09   # 512 KB
     rom[h + 0x18] = 0x00   # sem SRAM
     rom[h + 0x19] = 0x01   # NTSC
     rom[h + 0x1A] = 0x00
@@ -2206,5 +2380,5 @@ if __name__ == '__main__':
         for k, v in sorted(a.labels.items(), key=lambda kv: kv[1]):
             f.write('%04X %s\n' % (v, k))
     print('ok: %s' % out)
-    print('  banco 0 (código): $8000-$%04X | bancos 1-7: %s bytes de 32768'
-          % (end, ', '.join('%d' % usage[b] for b in range(1, 8))))
+    print('  banco 0 (código): $8000-$%04X | bancos 1-%d: %s bytes de 32768'
+          % (end, NBANKS - 1, ', '.join('%d' % usage[b] for b in range(1, NBANKS))))

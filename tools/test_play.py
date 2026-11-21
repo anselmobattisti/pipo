@@ -125,13 +125,14 @@ class Player:
         lv = self.var('level')
         assert self.var('mode') == B.MODE_INTRO, 'a fase deveria começar com o sapo'
         before = bytes(self.emu.wram[B.MAPBUF:B.MAPBUF + 224])
+        who = '_pato' if getattr(B.ALL[lv], 'VISITOR', 'frog') == 'pato' else '_sapo'
         k = len(self.emu.spc.kon_log)
         n = 0
         while self.var('mode') == B.MODE_INTRO:
             self.frames(1); n += 1
             assert n < 3000, 'introdução não terminou'
             if name and n == 120:
-                self.shot(name + '_sapo')
+                self.shot(name + who)
         assert self.var('msg_active'), 'mensagem do sapo'
         if B.intro_data(B.ALL[lv])[0]:
             assert before != bytes(self.emu.wram[B.MAPBUF:B.MAPBUF + 224]), 'o sapo não mudou nada'
@@ -142,10 +143,10 @@ class Player:
             now = bytes(B.MT['bush'] if c in hidden else c for c in now)
             assert all(self.emu.wram[B.R_ON + 2 * i] == 0 for i in range(3)), 'amigos sumiram nos arbustos'
         assert now == B.level_bytes(B.ALL[lv])[0], 'depois do sapo a fase deveria ficar como no mapa'
-        self.expect_sfx(k, 'laugh')
+        self.expect_sfx(k, B.visitor(B.ALL[lv])['sfx'][2])     # a risada do sapo / o quá-quá do pato
         self.frames(25)
         if name:
-            self.shot(name + '_sapo_fez')
+            self.shot(name + who + '_fez')
         if wait:                                         # sem botão: passa sozinho em 5 s
             self.frames(B.MSG_AUTO_FRAMES - 30)
             assert self.var('msg_active'), 'cedo demais'
@@ -184,17 +185,18 @@ class Player:
             if self.var('grow_t') == 0:
                 break
             self.frames(1)
-        assert self.stage() == B.stage_for(lv + 1), 'não cresceu (estágio %d)' % self.stage()
+        assert self.stage() == B.stage_after(lv), 'não cresceu (estágio %d)' % self.stage()
         self.shot(name + '_cresceu')
         for _ in range(len([m for m in level_mod.MESSAGES if m[0] != 'intro'])):
             self.frames(25); self.frames(2, 'A'); self.frames(1)
         self.frames(8)
-        nxt = lv + 1 if lv + 1 < len(B.LEVELS) else B.ENDING
+        nxt = B.level_next(lv)
         assert self.var('level') == nxt, (self.var('level'), nxt)
         assert self.var('delivered') == 0
-        if nxt != B.ENDING:
+        if nxt < len(B.LEVELS):
             assert self.pos() == B.ALL[nxt].START
-            self.intro('f%d' % (nxt + 1))
+            t, k = B.trail_pos(nxt)
+            self.intro('%s%d' % ('fp'[t], k + 1))
             assert not self.var('msg_active')
         else:                                  # no final o galo já começa a passear
             assert self.var('ty') == B.ALL[nxt].START[1]
@@ -234,8 +236,31 @@ def main():
     assert p.var('menu_sel') == B.SPEED_NORMAL
     p.frames(2, 'LEFT'); p.frames(2); p.frames(2, 'RIGHT'); p.frames(2)
     p.shot('menu_velocidade')
-    p.frames(2, 'START'); p.frames(3)                   # velocidade
-    assert p.var('speed') == B.SPEED_NORMAL
+    p.frames(2, 'START'); p.frames(40)                  # velocidade
+    assert p.var('speed') == B.SPEED_NORMAL and p.var('menu_page') == 3
+    # escolha da trilha: sapo ou Pato Pateta
+    assert p.var('menu_sel') == 0
+    p.shot('menu_trilha')
+    p.frames(2, 'DOWN'); p.frames(4)
+    assert p.var('menu_sel') == 1
+    p.shot('menu_trilha_pato')
+    p.frames(2, 'DOWN'); p.frames(4)
+    assert p.var('menu_sel') == 0, 'deveria dar a volta'
+    p.frames(2, 'START'); p.frames(40)
+    assert p.var('trail') == 0 and p.var('menu_page') == 4
+    # escolha da fase: começa na 1, o direcional troca o número e dá a volta
+    assert p.var('menu_sel') == 0
+    p.shot('menu_fase')
+    p.frames(2, 'RIGHT'); p.frames(40); p.frames(2, 'DOWN'); p.frames(40)
+    assert p.var('menu_sel') == 2
+    p.shot('menu_fase_3')
+    for _ in range(3):
+        p.frames(2, 'LEFT'); p.frames(40)
+    assert p.var('menu_sel') == len(B.TRAILS[0]) - 1, 'deveria dar a volta'
+    p.shot('menu_fase_10')
+    p.frames(2, 'UP'); p.frames(40); p.frames(2, 'RIGHT'); p.frames(40); p.frames(2, 'RIGHT'); p.frames(40)
+    assert p.var('menu_sel') == 0
+    p.frames(2, 'START'); p.frames(3)                   # fase 1
     p.intro('f1')
     assert p.var('mode') == B.MODE_PLAY and p.var('level') == 0
     assert not p.var('msg_active')
@@ -379,7 +404,8 @@ def main():
     assert p.var('pal_id') == 1
     lanterns = find(L, 'L')
     for i in range(3):
-        p.chase(i, B.ITEM['firefly'])
+        # persegue um vaga-lume ainda solto (o Pipo pode ter pego outro no caminho)
+        p.chase(next(k for k in range(3) if p.actor(k, 'ACT')), B.ITEM['firefly'])
         if i == 0:
             p.frames(4); p.shot('f9_vagalume')
         p.touch(*lanterns[i])
@@ -457,6 +483,12 @@ def main():
     assert p.var('snd_off') == 1 and p.var('menu_page') == 2
     p.frames(2, 'DOWN'); p.frames(2)                    # rápido
     p.shot('menu_rapido_en')
+    p.frames(2, 'A'); p.frames(40)
+    assert p.var('menu_page') == 3
+    p.shot('menu_trilha_en')
+    p.frames(2, 'A'); p.frames(40)
+    assert p.var('menu_page') == 4 and p.var('trail') == 0
+    p.shot('menu_fase_en')
     p.frames(2, 'A'); p.frames(3)
     assert p.var('mode') == B.MODE_INTRO and p.var('level') == 0 and p.var('lang') == B.LANG_EN
     assert p.var('speed') == B.SPEED_FAST and p.emu.spc.dsp[0x0C] == 0
@@ -486,8 +518,137 @@ def main():
     p.frames(12)
     assert p.var('msg_next') == B.MSG['0_grow@en'], 'mensagem deveria estar em inglês'
     p.shot('f1_estrela_ingles')
-    print('OK — abertura e menu, sapo Cururu + 10 fases, final, volta, fase 1 em inglês sem som e rápida (%d quadros emulados)' % p.emu.frame)
+    # ---------------- começar direto numa fase escolhida (fase 6)
+    q = Player(rom)
+    q.n = p.n
+    q.frames(125)
+    for _ in range(4):
+        q.frames(2, 'START'); q.frames(40)
+    assert q.var('menu_page') == 4
+    for _ in range(5):
+        q.frames(2, 'RIGHT'); q.frames(40)
+    assert q.var('menu_sel') == 5
+    q.frames(2, 'START'); q.frames(3)
+    assert q.var('level') == 5 and q.var('mode') == B.MODE_INTRO
+    q.intro()
+    assert q.var('mode') == B.MODE_PLAY and q.stage() == B.stage_for(5), 'Pipo no tamanho da fase 6'
+    q.frames(6); q.shot('escolheu_fase_6')
+    n = pato_trail(rom, q.n)
+    print('OK — abertura e menu, sapo Cururu + 10 fases, final, volta, fase 1 em inglês sem som e rápida, '
+          'Pato Pateta + 5 fases e final (%d quadros emulados)' % (p.emu.frame + q.emu.frame + n))
+
+
+def pato_trail(rom, shot_n):
+    """Joga a trilha do Pato Pateta inteira (letras e números)."""
+    MT = B.MT
+    p = Player(rom)
+    p.n = shot_n
+    p.frames(125)
+    for _ in range(3):
+        p.frames(2, 'START'); p.frames(40)
+    assert p.var('menu_page') == 3
+    p.frames(2, 'RIGHT'); p.frames(4)
+    assert p.var('menu_sel') == 1
+    p.frames(2, 'START'); p.frames(40)
+    assert p.var('trail') == 1 and p.var('menu_page') == 4 and p.var('menu_sel') == 0
+    p.frames(2, 'LEFT'); p.frames(40)
+    assert p.var('menu_sel') == len(B.TRAILS[1]) - 1, 'a trilha do pato tem 5 fases'
+    p.shot('menu_fase_pato_5')
+    p.frames(2, 'RIGHT'); p.frames(40)
+    assert p.var('menu_sel') == 0
+    k = k0 = len(p.emu.spc.kon_log)
+    p.frames(2, 'START'); p.frames(3)
+    first = B.TRAIL_BASE[1]
+    assert p.var('level') == first and p.var('mode') == B.MODE_INTRO
+    p.expect_sfx(k, 'quack')
+    assert p.emu.wram[B.OAM + 4 * B.FROG_OAM + 2] == B.A.hud_tile('pato_sit') & 0xFF or \
+        p.emu.wram[B.OAM + 4 * B.FROG_OAM + 2] == B.A.hud_tile('pato_laugh') & 0xFF, 'quem aparece é o pato'
+    p.intro('p1')
+    assert p.stage() == 0
+    hud = B.OAM + 4 * B.HUD_OAM
+    assert p.emu.wram[hud + 2] == B.A.hud_tile('1') & 0xFF and p.emu.wram[hud + 5] == 0xF0, 'placar "1"'
+    # a música mudou: o lá agudo (A5) só existe na música do pato
+    p.frames(60)
+    inv = {sound.pitch_value(n): n for n in range(128)}
+    mel = [inv[pt] for _, _, info in p.emu.spc.kon_log[k0:] for v, pt, _ in info if v == 0]
+    assert sound.midi('A5') in mel, 'música do Pato Pateta não tocou (%s)' % mel
+
+    def carry_all(L, pairs, goal):
+        """pairs: [(letra do bloquinho, letra da casinha, símbolo)]."""
+        for i, (blk, slot, sym) in enumerate(pairs):
+            p.touch(*find(L, blk)[0])
+            assert p.var('carry') == B.ITEM['blk_' + sym], 'não pegou o %s' % sym
+            if i == 0:                                   # casinha errada: não aceita
+                p.frames(4); p.shot('p%d_carregando' % (B.trail_pos(p.var('level'))[1] + 1))
+                p.touch(*find(L, pairs[1][1])[0])
+                assert p.var('carry') == B.ITEM['blk_' + sym] and p.var('delivered') == 0
+            x, y = find(L, slot)[0]
+            p.touch(x, y)
+            assert p.var('carry') == 0 and p.var('delivered') == i + 1
+            assert p.tile(x, y) == MT[B.MT_NEXT[B.char_mt(L, slot)]]
+            gx, gy = find(L, 'G')[0]
+            assert (p.tile(gx, gy) == MT['path']) == (i + 1 == goal), 'portão na hora errada'
+
+    # ---------------- pato 1: vogais
+    L = B.pato1
+    p.shot('p1_inicio')
+    k = len(p.emu.spc.kon_log)
+    p.touch(*find(L, 'D')[0]); p.frames(5); p.expect_sfx(k, 'quack')
+    carry_all(L, [(s, s.lower(), s) for s in 'AEIOU'], 5)
+    p.frames(6); p.shot('p1_vogais')
+    p.finish_star(L, find(L, '*')[0], 'p1_estrela')
+    # ---------------- pato 2: números
+    L = B.pato2
+    p.shot('p2_inicio')
+    carry_all(L, [(str(n), 'abcde'[n - 1], str(n)) for n in range(1, 6)], 5)
+    p.frames(6); p.shot('p2_numeros')
+    p.finish_star(L, find(L, '*')[0], 'p2_estrela')
+    # ---------------- pato 3: botões 1, 2, 3
+    L = B.pato3
+    p.shot('p3_inicio')
+    for btn, water, col in (('1', 'x', 'r'), ('2', 'v', 'b'), ('3', 'z', 'y')):
+        x, y = find(L, btn)[0]
+        p.walk_to(x, y)
+        p.frames(2)
+        assert p.tile(x, y) == MT['nbuttonp_' + btn], 'botão %s não afundou' % btn
+        for (wx, wy) in find(L, water):
+            assert p.tile(wx, wy) == MT['bridge_' + col], 'ponte do %s não apareceu' % btn
+        if btn == '1':
+            p.shot('p3_ponte_1')
+    p.shot('p3_pontes')
+    p.finish_star(L, find(L, '*')[0], 'p3_estrela')
+    # ---------------- pato 4: contar as bolinhas
+    L = B.pato4
+    p.shot('p4_inicio')
+    carry_all(L, [(str(n), 'abcde'[n - 1], str(n)) for n in range(1, 6)], 5)
+    p.frames(6); p.shot('p4_bolinhas')
+    p.finish_star(L, find(L, '*')[0], 'p4_estrela')
+    # ---------------- pato 5: escrever PATO
+    L = B.pato5
+    p.shot('p5_inicio')
+    carry_all(L, [('1234'[i], 'abcd'[i], s) for i, s in enumerate('PATO')], 4)
+    p.frames(6); p.shot('p5_pato')
+    k = len(p.emu.spc.kon_log)
+    p.finish_star(L, find(L, '*')[0], 'p5_galo')
+    p.expect_sfx(k, 'crow')
+    # ---------------- tela final da trilha
+    assert p.var('level') == B.ENDING2 and p.var('mode') == B.MODE_END and p.stage() == 11
+    assert p.emu.wram[B.CUT_DONE], 'sem cena: o FIM! aparece logo'
+    assert all(p.emu.wram[B.OAM + 4 * (B.CUT_OAM + i) + 1] >= 0xE0 for i in range(4)), 'sem papai/mamãe aqui'
+    p.frames(40); p.shot('final_pato')
+    assert p.var('px') > B.ending2.START[0] * 16, 'o galo deveria passear'
+    txt0 = bytes(p.emu.wram[B.TXTBUF:B.TXTBUF + 512])
+    p.frames(240); p.shot('final_pato_autores')
+    assert bytes(p.emu.wram[B.TXTBUF:B.TXTBUF + 512]) != txt0, 'deveria mostrar os autores'
+    p.frames(2, 'A'); p.frames(3)
+    assert p.var('mode') == B.MODE_TITLE, 'deveria voltar para a abertura'
+    return p.emu.frame
 
 
 if __name__ == '__main__':
-    main()
+    if 'pato' in sys.argv[1:]:          # só a trilha do Pato Pateta (não apaga as outras capturas)
+        os.makedirs(OUT, exist_ok=True)
+        pato_trail(open(os.path.join(ROOT, 'pipo.sfc'), 'rb').read(), 100)
+        print('OK — trilha do Pato Pateta')
+    else:
+        main()

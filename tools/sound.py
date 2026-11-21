@@ -13,9 +13,11 @@ DIR_ADDR = 0x0800     # diretório de amostras (precisa começar numa página)
 SFX = {'pick': 1, 'yay': 2, 'gate': 3, 'star': 4, 'piu': 5, 'leaves': 6,
        'bell1': 7, 'bell2': 8, 'bell3': 9, 'note1': 10, 'note2': 11, 'note3': 12,
        'grow': 13, 'crow': 14, 'water': 15,
-       'croak': 16, 'hop': 17, 'mischief': 18, 'laugh': 19}
+       'croak': 16, 'hop': 17, 'mischief': 18, 'laugh': 19,
+       'quack': 20, 'oops': 21}
 # comandos especiais (mesmo canal dos efeitos)
 CMD_MUTE, CMD_UNMUTE = 0x40, 0x41   # desliga / liga o volume geral (o 2º toca 'pick')
+CMD_SONG = 0x42                     # +0: música do sapo Cururu; +1: música do Pato Pateta
 
 TICK_HZ = 100         # timer 0: 8000 Hz / 80
 Q = 54                # semínima em ticks (~110 bpm)
@@ -60,6 +62,18 @@ BASS = seq(                       # um acorde por compasso (mínimas)
     ('D3', H), ('G2', H), ('F3', H), ('G2', H), ('C3', H),
     loop=True)
 
+# Trilha do Pato Pateta: a melodia de "Ah! vous dirai-je, maman" (domínio público) —
+# a mesma de "Brilha, brilha, estrelinha" e da canção do ABC.
+TQ, TH = 40, 80
+_L1 = [('C5', TQ), ('C5', TQ), ('G5', TQ), ('G5', TQ), ('A5', TQ), ('A5', TQ), ('G5', TH),
+       ('F5', TQ), ('F5', TQ), ('E5', TQ), ('E5', TQ), ('D5', TQ), ('D5', TQ), ('C5', TH)]
+_L2 = [('G5', TQ), ('G5', TQ), ('F5', TQ), ('F5', TQ), ('E5', TQ), ('E5', TQ), ('D5', TH)]
+MELODY2 = seq(*(_L1 + _L2 + _L2 + _L1), loop=True)
+_B1 = [('C3', TH), ('C3', TH), ('F3', TH), ('C3', TH), ('F3', TH), ('C3', TH), ('G2', TH), ('C3', TH)]
+_B2 = [('C3', TH), ('F3', TH), ('C3', TH), ('G2', TH)]
+BASS2 = seq(*(_B1 + _B2 + _B2 + _B1), loop=True)
+SONGS = [('song_mel', 'song_bass'), ('song_mel2', 'song_bass2')]
+
 
 EFFECTS = {
     'pick': seq(('C6', 5), ('G6', 12)),
@@ -83,6 +97,9 @@ EFFECTS = {
     'hop': seq(('C5', 3), ('G5', 5)),
     'mischief': seq(('A5', 4), ('E5', 4), ('C5', 4), ('A4', 4), ('E4', 10)),
     'laugh': seq(('E5', 6), (None, 4), ('E5', 6), (None, 4), ('G5', 6), (None, 4), ('E5', 14)),
+    # Pato Pateta
+    'quack': seq(('F4', 5), ('D4', 8), (None, 4), ('F4', 5), ('D4', 12)),
+    'oops': seq(('G5', 3), ('E5', 3), ('C5', 3), ('G4', 3), ('E4', 3), ('C4', 10)),
     'water': seq(('E6', 3), ('C6', 3), ('A5', 3), ('F5', 3), ('D5', 3), ('C5', 10)),
 }
 
@@ -153,6 +170,8 @@ def build_driver():
     # start_sfx: A = número do efeito (1..N) ou comando de volume
     a.label('start_sfx')
     a.cmp_a_imm(CMD_MUTE); a.beq('cmd_mute')
+    a.cmp_a_imm(CMD_SONG); a.beq('cmd_song0')
+    a.cmp_a_imm(CMD_SONG + 1); a.beq('cmd_song1')
     a.cmp_a_imm(CMD_UNMUTE); a.bne('ss_play')
     a.mov_a_imm(0x7F); a.call('set_mvol')
     a.mov_a_imm(SFX['pick'])
@@ -162,6 +181,16 @@ def build_driver():
     a.label('set_mvol')                         # volume geral (esq. e dir.) = A
     a.mov_dp_imm(0xF2, 0x0C); a.mov_dp_a(0xF3)
     a.mov_dp_imm(0xF2, 0x1C); a.mov_dp_a(0xF3)
+    a.ret()
+    # troca a música: as duas trilhas (melodia e baixo) recomeçam na música nova
+    a.label('cmd_song1')
+    a.mov_y_imm(4); a.bra('cmd_song')
+    a.label('cmd_song0')
+    a.mov_y_imm(0)
+    a.label('cmd_song')
+    for k, t in ((0, T), (1, T + 1), (2, T + 8), (3, T + 9)):
+        a.mov_a_absy(('+', 'song_tab', k)); a.mov_dp_a(t); a.mov_dp_a(t + 6)
+    a.mov_dp_imm(T + 2, 0); a.mov_dp_imm(T + 10, 0)
     a.ret()
     a.label('ss_play')
     a.asl_a(); a.mov_y_a()
@@ -233,8 +262,13 @@ def build_driver():
         a.word('sfx_' + name)
     a.label('pitch_tab')
     a.word(*[pitch_value(n) for n in range(128)])
+    a.label('song_tab')
+    for mel, bass in SONGS:
+        a.word(mel, bass)
     a.label('song_mel'); a.byte(MELODY)
     a.label('song_bass'); a.byte(BASS)
+    a.label('song_mel2'); a.byte(MELODY2)
+    a.label('song_bass2'); a.byte(BASS2)
     for name, data in EFFECTS.items():
         a.label('sfx_' + name); a.byte(data)
 

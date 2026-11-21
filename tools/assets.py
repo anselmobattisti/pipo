@@ -406,15 +406,35 @@ def mt_button(col, pressed):
 
 
 # ---------------------------------------------------------------- fase 6: mamãe pata
-def mt_mother():
-    im = new16(11); d = ImageDraw.Draw(im)
-    d.ellipse((1, 8, 15, 15), fill=12)
-    d.ellipse((2, 6, 14, 14), fill=13); d.ellipse((3, 7, 13, 13), fill=8)
-    d.ellipse((1, 1, 8, 8), fill=13); d.ellipse((2, 2, 7, 7), fill=8)
-    d.point((4, 4), 13)
-    d.polygon([(0, 5), (2, 4), (2, 6)], fill=14)
-    d.line((8, 9, 12, 10), fill=12)
+def mother_image():
+    """Mamãe pata grande (32x32 = 4 metatiles), nadando virada para a esquerda."""
+    im = Image.new('P', (32, 32), 11); d = ImageDraw.Draw(im)
+    # ondinhas em volta
+    d.ellipse((2, 19, 31, 31), fill=12)
+    d.line((0, 27, 3, 27), fill=12); d.line((1, 6, 4, 6), fill=12); d.line((25, 4, 29, 4), fill=12)
+    # corpo
+    d.ellipse((5, 12, 30, 29), fill=13); d.ellipse((6, 13, 29, 28), fill=8)
+    # rabinho
+    d.polygon([(26, 15), (31, 9), (30, 18)], fill=13); d.polygon([(27, 15), (30, 11), (29, 17)], fill=8)
+    # pescoço e cabeça
+    d.rectangle((6, 9, 14, 18), fill=13); d.rectangle((7, 9, 13, 19), fill=8)
+    d.ellipse((3, 0, 16, 13), fill=13); d.ellipse((4, 1, 15, 12), fill=8)
+    d.rectangle((7, 10, 13, 19), fill=8)      # junta a cabeça ao pescoço
+    # olho e bico
+    d.rectangle((7, 5, 8, 6), fill=13)
+    d.polygon([(0, 8), (4, 6), (4, 10)], fill=13); d.polygon([(1, 8), (4, 7), (4, 9)], fill=14)
+    # asa
+    d.arc((13, 15, 26, 26), 0, 180, fill=13); d.line((13, 20, 15, 17), fill=13)
+    d.line((17, 22, 22, 22), fill=12)
+    # água na frente do peito
+    d.line((6, 29, 28, 29), fill=12); d.line((9, 30, 25, 30), fill=12)
     return im
+
+
+def mt_mother(part=0):
+    """Um dos 4 pedaços da mamãe pata: 0 = cima-esq, 1 = cima-dir, 2 = baixo-esq, 3 = baixo-dir."""
+    x, y = (part & 1) * 16, (part >> 1) * 16
+    return mother_image().crop((x, y, x + 16, y + 16))
 
 
 # ---------------------------------------------------------------- fase 7: regar
@@ -595,6 +615,156 @@ def mt_nest(n):
     return im
 
 
+# ---------------------------------------------------------------- trilha do Pato Pateta
+# Bloquinhos de letras (azuis) e de números (vermelhos), as casinhas onde eles
+# moram, os cartões de bolinhas (para contar) e os botões numerados.
+SYMBOLS = 'AEIOUPT12345'
+
+
+def glyph_pts(ch, size):
+    """Pontos (x, y) de um caractere em negrito, com o canto em (0, 0); devolve (pontos, largura, altura)."""
+    if ch == 'O':                             # a fonte deixa o O torto (parece um D): anel simétrico
+        w, h = round(size * 0.67), round(size * 0.75)
+        im = Image.new('L', (w, h), 0); d = ImageDraw.Draw(im)
+        d.ellipse((0, 0, w - 1, h - 1), fill=255)
+        d.rectangle((2, 3, w - 3, h - 4), fill=0); d.rectangle((3, 2, w - 4, h - 3), fill=0)
+        return [(x, y) for y in range(h) for x in range(w) if im.getpixel((x, y))], w, h
+    font = ImageFont.truetype(next(p for p in FONT_CANDIDATES if os.path.exists(p)), size)
+    im = Image.new('L', (48, 48), 0)
+    ImageDraw.Draw(im).text((16, 32), ch, font=font, fill=255, anchor='ls')
+    pts = [(x, y) for y in range(48) for x in range(48) if im.getpixel((x, y)) >= 110]
+    x0, y0 = min(x for x, _ in pts), min(y for _, y in pts)
+    pts = [(x - x0, y - y0) for x, y in pts]
+    return pts, max(x for x, _ in pts) + 1, max(y for _, y in pts) + 1
+
+
+def draw_glyph(d, ch, size, cx, cy, col):
+    """Desenha o caractere centrado em (cx, cy) (centro do pixel)."""
+    pts, w, h = glyph_pts(ch, size)
+    ox, oy = round(cx - (w - 1) / 2), round(cy - (h - 1) / 2)
+    d.point([(ox + x, oy + y) for x, y in pts], col)
+
+
+def draw_block(d, ch, x0, y0, col, shine, out, white, pips=0, pip_col=0):
+    """Bloquinho de 14x14 com a letra ou o número em branco."""
+    d.rectangle((x0, y0, x0 + 13, y0 + 13), fill=out)
+    d.rectangle((x0 + 1, y0 + 1, x0 + 12, y0 + 12), fill=col)
+    d.point([(x0, y0), (x0 + 13, y0), (x0, y0 + 13), (x0 + 13, y0 + 13)], 0 if out == 15 else 1)
+    if pips:                                  # número à esquerda, bolinhas à direita (cartão já resolvido)
+        for i in range(pips):
+            x, y = x0 + 8 + (i % 2) * 3, y0 + 2 + (i // 2) * 4
+            d.rectangle((x, y, x + 1, y + 1), fill=pip_col)
+        draw_glyph(d, ch, 10, x0 + 3.5, y0 + 6.5, white)
+    else:
+        d.line((x0 + 2, y0 + 1, x0 + 11, y0 + 1), fill=shine)
+        draw_glyph(d, ch, 12, x0 + 6.5, y0 + 7, white)
+
+
+def _blk_cols(ch):
+    return (10, 7) if ch.isdigit() else (11, 12)     # números vermelhos, letras azuis
+
+
+def mt_blk(ch):
+    im = new16(); d = ImageDraw.Draw(im); grass(d, im, specks=False)
+    d.ellipse((2, 12, 14, 15), fill=2)
+    col, shine = _blk_cols(ch)
+    draw_block(d, ch, 1, 0, col, shine, 13, 8)
+    return im
+
+
+def mt_slot(ch, full):
+    """Casinha de um bloquinho: tapete de areia com a letra marcada."""
+    im = new16(15); d = ImageDraw.Draw(im)
+    d.rectangle((0, 0, 15, 15), outline=14)
+    if full:
+        col, shine = _blk_cols(ch)
+        draw_block(d, ch, 1, 1, col, shine, 13, 8)
+        d.point([(1, 1), (14, 1), (1, 14), (14, 14)], 15)
+    else:
+        draw_glyph(d, ch, 12, 7.5, 7.5, 3)
+    return im
+
+
+DOT_POS = {1: [(1, 1)], 2: [(0, 0), (2, 2)], 3: [(0, 0), (1, 1), (2, 2)],
+           4: [(0, 0), (2, 0), (0, 2), (2, 2)], 5: [(0, 0), (2, 0), (1, 1), (0, 2), (2, 2)]}
+
+
+def mt_dots(n, full):
+    """Cartão com n bolinhas (como um dado); resolvido = bloquinho do número com as bolinhas."""
+    im = new16(); d = ImageDraw.Draw(im); grass(d, im, specks=False)
+    if full:
+        draw_block(d, str(n), 1, 1, 10, 7, 13, 8, pips=n, pip_col=9)
+        return im
+    d.rectangle((1, 1, 14, 14), fill=13); d.rectangle((2, 2, 13, 13), fill=8)
+    for gx, gy in DOT_POS[n]:
+        x, y = 3 + gx * 4, 3 + gy * 4
+        d.rectangle((x, y, x + 1, y + 1), fill=10)
+    return im
+
+
+def mt_nbutton(k, pressed):
+    """Botão numerado (1 vermelho, 2 azul, 3 amarelo), igual aos botões das pontes."""
+    im = mt_button('rby'[k - 1], pressed); d = ImageDraw.Draw(im)
+    if pressed:
+        d.ellipse((5, 8, 10, 11), fill={1: 10, 2: 11, 3: 9}[k])
+        draw_glyph(d, str(k), 8, 7.5, 9.5, 13)
+    else:
+        d.ellipse((4, 3, 7, 5), fill={1: 10, 2: 11, 3: 9}[k])
+        draw_glyph(d, str(k), 10, 7.5, 6, 8 if k < 3 else 13)
+    return im
+
+
+def draw_pato(d, pose, W, BK, OUT, EYE, CAP, DOT, TONGUE):
+    """O Pato Pateta: pato branco de boné azul torto, bicão laranja e olhos esbugalhados."""
+    if pose == 'jump':                               # tropeçando: pés para os lados
+        d.line((4, 13, 1, 15), fill=BK, width=2); d.line((11, 13, 14, 15), fill=BK, width=2)
+        oy = -1
+    else:
+        d.rectangle((3, 14, 6, 15), fill=BK); d.rectangle((9, 14, 12, 15), fill=BK)
+        oy = 0
+    d.ellipse((2, 7 + oy, 13, 14 + oy), fill=OUT); d.ellipse((3, 8 + oy, 12, 13 + oy), fill=W)   # corpo
+    d.ellipse((3, 1 + oy, 12, 10 + oy), fill=OUT); d.ellipse((4, 2 + oy, 11, 9 + oy), fill=W)    # cabeça
+    d.line((2, 10 + oy, 3, 12 + oy), fill=OUT); d.line((13, 10 + oy, 12, 12 + oy), fill=OUT)     # asinhas
+    # boné torto
+    d.chord((4, 0 + oy, 11, 7 + oy), 180, 360, fill=OUT)
+    d.chord((5, 1 + oy, 10, 6 + oy), 180, 360, fill=CAP)
+    d.line((10, 3 + oy, 14, 2 + oy), fill=OUT); d.line((10, 2 + oy, 13, 1 + oy), fill=CAP)
+    d.point((7, 1 + oy), DOT)
+    # olhos
+    if pose == 'laugh':
+        d.line([(5, 6 + oy), (6, 5 + oy), (7, 6 + oy)], fill=EYE)
+        d.line([(8, 6 + oy), (9, 5 + oy), (10, 6 + oy)], fill=EYE)
+    else:
+        d.point([(6, 5 + oy), (6, 6 + oy), (9, 5 + oy), (9, 6 + oy)], EYE)
+    # bicão
+    d.ellipse((4, 7 + oy, 11, 10 + oy), fill=BK)
+    if pose == 'laugh':
+        d.rectangle((6, 9 + oy, 9, 10 + oy), fill=TONGUE)
+        d.line((5, 8 + oy, 10, 8 + oy), fill=OUT)
+    else:
+        d.line((5, 9 + oy, 10, 9 + oy), fill=OUT)
+
+
+def mt_pato():
+    im = new16(); d = ImageDraw.Draw(im); grass(d, im, specks=False)
+    d.ellipse((2, 13, 13, 15), fill=2)
+    draw_pato(d, 'sit', 8, 14, 13, 13, 11, 9, 10)
+    return im
+
+
+def spr_pato(pose):  # paleta de sprites 1
+    im = Image.new('P', (16, 16), 0); d = ImageDraw.Draw(im)
+    draw_pato(d, pose, 8, 6, 13, 7, 11, 4, 10)
+    return im
+
+
+def spr_block(ch):   # paleta de sprites 0 — o bloquinho que o Pipo carrega
+    im = Image.new('P', (16, 16), 0); d = ImageDraw.Draw(im)
+    col, shine = (7, 6) if ch.isdigit() else (9, 5)
+    draw_block(d, ch, 1, 1, col, shine, 15, 5)
+    return im
+
+
 # ordem = índice do metatile usado no mapa e no código
 METATILES = [
     # nome, função, paleta
@@ -639,7 +809,8 @@ METATILES = [
     ('buttonp_r', lambda: mt_button('r', True), 1), ('buttonp_b', lambda: mt_button('b', True), 1),
     ('buttonp_y', lambda: mt_button('y', True), 1),
     # fase 6
-    ('mother', mt_mother, 1),
+    ('mother', mt_mother, 1), ('mother_1', lambda: mt_mother(1), 1),
+    ('mother_2', lambda: mt_mother(2), 1), ('mother_3', lambda: mt_mother(3), 1),
     # fase 7
     ('can', mt_can, 1),
     ('sprout_1', mt_sprout, 1), ('sprout_2', mt_sprout, 1), ('sprout_3', mt_sprout, 1),
@@ -668,7 +839,17 @@ METATILES = [
     ('nest_2', lambda: mt_nest(2), 1), ('nest_3', lambda: mt_nest(3), 1),
     ('hen', mt_hen, 1),
 ]
-MT = {name: i for i, (name, _, _) in enumerate(METATILES)}
+# trilha do Pato Pateta
+METATILES += [('blk_' + s, (lambda s=s: mt_blk(s)), 1) for s in SYMBOLS]
+METATILES += [('slot_' + s, (lambda s=s: mt_slot(s, False)), 1) for s in SYMBOLS]
+METATILES += [('slotf_' + s, (lambda s=s: mt_slot(s, True)), 1) for s in SYMBOLS]
+METATILES += [('dots_%d' % n, (lambda n=n: mt_dots(n, False)), 1) for n in range(1, 6)]
+METATILES += [('dotsf_%d' % n, (lambda n=n: mt_dots(n, True)), 1) for n in range(1, 6)]
+METATILES += [('nbutton_%d' % k, (lambda k=k: mt_nbutton(k, False)), 1) for k in (1, 2, 3)]
+METATILES += [('nbuttonp_%d' % k, (lambda k=k: mt_nbutton(k, True)), 1) for k in (1, 2, 3)]
+METATILES += [('pato', mt_pato, 1)]
+assert len(METATILES) <= 256
+MT ={name: i for i, (name, _, _) in enumerate(METATILES)}
 
 
 def build_bg():
@@ -1015,8 +1196,13 @@ HUD_SPRITES = [(str(n), (lambda n=n: _glyph(str(n)))) for n in range(10)] + [   
     ('blanket', lambda: spr_blanket(True)),
     ('frog_wrap0', lambda: spr_frog_wrapped(0)), ('frog_wrap1', lambda: spr_frog_wrapped(1)),
 ] + [(n, (lambda f=f: _friend_sprite(f)[0])) for n, f in FRIEND_SPRITES.items()]   # amigos correndo
+# trilha do Pato Pateta: bloquinhos carregados e o próprio pato
+HUD_SPRITES += [('blk_' + s, (lambda s=s: spr_block(s))) for s in SYMBOLS]
+HUD_SPRITES += [('pato_' + p, (lambda p=p: spr_pato(p))) for p in ('sit', 'jump', 'laugh')]
+assert len(HUD_SPRITES) <= 32, 'a folha extra tem 32 células (tiles 384-511)'
 HUD = {name: i for i, (name, _) in enumerate(HUD_SPRITES)}
-HUD_PAL2_CELLS = {'blanket_half', 'blanket', 'frog_wrap0', 'frog_wrap1'} | {
+HUD_PAL2_CELLS = {'blanket_half', 'blanket', 'frog_wrap0', 'frog_wrap1',
+                  'pato_sit', 'pato_jump', 'pato_laugh'} | {
     n for n, f in FRIEND_SPRITES.items() if _friend_sprite(f)[1]}
 
 

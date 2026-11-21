@@ -14,7 +14,7 @@ LEVEL = [
     'T..............T',
     'T..============T',
     'T..............T',
-    'TWWWWWM........T',
+    'TWWWWMW........T',
     'TWWWWWW.....@.QT',
     'T,....P......,.T',
     'TTTTTTTTTTTTTTTT',

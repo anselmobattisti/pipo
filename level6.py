@@ -1,6 +1,7 @@
 # Fase 6 — "Filhotes perdidos"
 # Encostar num patinho faz ele seguir o Pipo em fila. Levando a fila até a
-# mamãe pata, eles ficam com ela.   d patinho   M mamãe pata (na água)
+# mamãe pata, eles ficam com ela.   d patinho
+# M mamãe pata (grande: ocupa 2x2 blocos de água; o M é o canto de cima à esquerda)
 LEVEL = [
     'TTTTTTTTTTTTTTTT',
     'T..d......,....T',
@@ -11,7 +12,7 @@ LEVEL = [
     'T.......d...B..T',
     'T..,...........T',
     'T.........fffffT',
-    'TWWWWM....f....T',
+    'TWWWMW....f....T',
     'TWWWWW....G.*..T',
     'TWWWWW....f....T',
     'TWWWWW..,.f..,.T',
